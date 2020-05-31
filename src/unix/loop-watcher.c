@@ -63,6 +63,126 @@
     uv_##name##_stop(handle);                                                 \
   }
 
-UV_LOOP_WATCHER_DEFINE(prepare, PREPARE)
-UV_LOOP_WATCHER_DEFINE(check, CHECK)
-UV_LOOP_WATCHER_DEFINE(idle, IDLE)
+//UV_LOOP_WATCHER_DEFINE(prepare, PREPARE)
+//UV_LOOP_WATCHER_DEFINE(check, CHECK)
+//UV_LOOP_WATCHER_DEFINE(idle, IDLE)
+
+int uv_prepare_init(uv_loop_t* loop, uv_prepare_t* handle) {
+  uv__handle_init(loop, (uv_handle_t*)handle, UV_PREPARE);
+  handle->prepare_cb = NULL;
+  return 0;
+}
+
+int uv_prepare_start(uv_prepare_t* handle, uv_prepare_cb cb) {
+  if (uv__is_active(handle)) return 0;
+  if (cb == NULL) return UV_EINVAL;
+  QUEUE_INSERT_HEAD(&handle->loop->prepare_handles, &handle->queue);
+  handle->prepare_cb = cb;
+  uv__handle_start(handle);
+  return 0;
+}
+
+int uv_prepare_stop(uv_prepare_t* handle) {
+  if (!uv__is_active(handle)) return 0;
+  QUEUE_REMOVE(&handle->queue);
+  uv__handle_stop(handle);
+  return 0;
+}
+
+void uv__run_prepare(uv_loop_t* loop) {
+  uv_prepare_t* h;
+  QUEUE queue;
+  QUEUE* q;
+  QUEUE_MOVE(&loop->prepare_handles, &queue);
+  while (!QUEUE_EMPTY(&queue)) {
+    q = QUEUE_HEAD(&queue);
+    h = QUEUE_DATA(q, uv_prepare_t, queue);
+    QUEUE_REMOVE(q);
+    QUEUE_INSERT_TAIL(&loop->prepare_handles, q);
+    h->prepare_cb(h);
+  }
+}
+
+void uv__prepare_close(uv_prepare_t* handle) {
+  uv_prepare_stop(handle);
+}
+
+int uv_check_init(uv_loop_t* loop, uv_check_t* handle) {
+  uv__handle_init(loop, (uv_handle_t*)handle, UV_CHECK);
+  handle->check_cb = NULL;
+  return 0;
+}
+
+int uv_check_start(uv_check_t* handle, uv_check_cb cb) {
+  if (uv__is_active(handle)) return 0;
+  if (cb == NULL) return UV_EINVAL;
+  QUEUE_INSERT_HEAD(&handle->loop->check_handles, &handle->queue);
+  handle->check_cb = cb;
+  uv__handle_start(handle);
+  return 0;
+}
+
+int uv_check_stop(uv_check_t* handle) {
+  if (!uv__is_active(handle)) return 0;
+  QUEUE_REMOVE(&handle->queue);
+  uv__handle_stop(handle);
+  return 0;
+}
+
+void uv__run_check(uv_loop_t* loop) {
+  uv_check_t* h;
+  QUEUE queue;
+  QUEUE* q;
+  QUEUE_MOVE(&loop->check_handles, &queue); /** 将check_queue从loop移除, 防止回调用修改队列 **/
+  while (!QUEUE_EMPTY(&queue)) {
+    q = QUEUE_HEAD(&queue);
+    h = QUEUE_DATA(q, uv_check_t, queue);
+    QUEUE_REMOVE(q);
+    QUEUE_INSERT_TAIL(&loop->check_handles, q);/** 重新将节点插入check_queue **/
+    h->check_cb(h);
+  }
+}
+
+void uv__check_close(uv_check_t* handle) {
+  uv_check_stop(handle);
+}
+
+int uv_idle_init(uv_loop_t* loop, uv_idle_t* handle) {
+  uv__handle_init(loop, (uv_handle_t*)handle, UV_IDLE);
+    handle->idle_cb = NULL;
+    return 0;
+}
+
+int uv_idle_start(uv_idle_t* handle, uv_idle_cb cb) {
+  if (uv__is_active(handle)) return 0;
+  if (cb == NULL) return UV_EINVAL;
+  QUEUE_INSERT_HEAD(&handle->loop->idle_handles, &handle->queue);
+  handle->idle_cb = cb;
+  uv__handle_start(handle);
+  return 0;
+}
+
+int uv_idle_stop(uv_idle_t* handle) {
+  if (!uv__is_active(handle)) return 0;
+  QUEUE_REMOVE(&handle->queue);
+  uv__handle_stop(handle);
+  return 0;
+}
+
+void uv__run_idle(uv_loop_t* loop) {
+  uv_idle_t* h;
+  QUEUE queue;
+  QUEUE* q;
+  QUEUE_MOVE(&loop->idle_handles, &queue);
+  while (!QUEUE_EMPTY(&queue)) {
+    q = QUEUE_HEAD(&queue);
+    h = QUEUE_DATA(q, uv_idle_t, queue);
+    QUEUE_REMOVE(q);
+    QUEUE_INSERT_TAIL(&loop->idle_handles, q);
+    h->idle_cb(h);
+  }
+}
+
+void uv__idle_close(uv_idle_t* handle) {
+  uv_idle_stop(handle);
+}

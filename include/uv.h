@@ -252,8 +252,8 @@ typedef enum {
 
 typedef enum {
   UV_RUN_DEFAULT = 0,
-  UV_RUN_ONCE,
-  UV_RUN_NOWAIT
+  UV_RUN_ONCE,        /** 如果pending_queue不为空, 则跳过io_poll **/
+  UV_RUN_NOWAIT       /** 无视pending_queue, 直接进行一次io_poll **/
 } uv_run_mode;
 
 
@@ -428,15 +428,15 @@ struct uv_shutdown_s {
   /* public */                                                                \
   void* data;                                                                 \
   /* read-only */                                                             \
-  uv_loop_t* loop;                                                            \
-  uv_handle_type type;                                                        \
+  uv_loop_t* loop;      /** 关联loop **/                                       \
+  uv_handle_type type;  /** type **/                                          \
   /* private */                                                               \
   uv_close_cb close_cb;                                                       \
-  void* handle_queue[2];                                                      \
+  void* handle_queue[2];/** handle_queue节点 **/                               \
   union {                                                                     \
     int fd;                                                                   \
     void* reserved[4];                                                        \
-  } u;                                                                        \
+  } u;                  /** fd **/                                            \
   UV_HANDLE_PRIVATE_FIELDS                                                    \
 
 /* The abstract base class of all handles. */
@@ -477,9 +477,9 @@ UV_EXTERN uv_buf_t uv_buf_init(char* base, unsigned int len);
 
 #define UV_STREAM_FIELDS                                                      \
   /* number of bytes queued for writing */                                    \
-  size_t write_queue_size;                                                    \
-  uv_alloc_cb alloc_cb;                                                       \
-  uv_read_cb read_cb;                                                         \
+  size_t write_queue_size; /** 待写缓冲队列字节数 **/                            \
+  uv_alloc_cb alloc_cb;    /** 分配内存回调 **/                                 \
+  uv_read_cb read_cb;      /** 读取, 错误回调 **/                               \
   /* private */                                                               \
   UV_STREAM_PRIVATE_FIELDS
 
@@ -1769,16 +1769,16 @@ union uv_any_req {
 
 struct uv_loop_s {
   /* User data - use this for whatever. */
-  void* data;
+  void* data;                  /** 用户数据 **/
   /* Loop reference counting. */
-  unsigned int active_handles;
-  void* handle_queue[2];
+  unsigned int active_handles; /** 引用计数 **/
+  void* handle_queue[2];       /** handle_queue双链表 **/
   union {
-    void* unused[2];
-    unsigned int count;
+    void* unused[2];           /** 向下兼容 **/
+    unsigned int count;        /** 活跃的request数量 **/
   } active_reqs;
   /* Internal flag to signal loop stop. */
-  unsigned int stop_flag;
+  unsigned int stop_flag;      /** 停止标记 **/
   UV_LOOP_PRIVATE_FIELDS
 };
 

@@ -92,12 +92,12 @@ typedef void (*uv__io_cb)(struct uv_loop_s* loop,
 typedef struct uv__io_s uv__io_t;
 
 struct uv__io_s {
-  uv__io_cb cb;
-  void* pending_queue[2];
-  void* watcher_queue[2];
+  uv__io_cb cb;           /** 回调 **/
+  void* pending_queue[2]; /** pending节点 **/
+  void* watcher_queue[2]; /** watcher节点 **/
   unsigned int pevents; /* Pending event mask i.e. mask at next tick. */
   unsigned int events;  /* Current event mask. */
-  int fd;
+  int fd;                 /** 文件描述符 **/
   UV_IO_PRIVATE_PLATFORM_FIELDS
 };
 
@@ -221,20 +221,22 @@ typedef struct {
 #define UV_LOOP_PRIVATE_FIELDS                                                \
   unsigned long flags;                                                        \
   int backend_fd;                                                             \
-  void* pending_queue[2];                                                     \
-  void* watcher_queue[2];                                                     \
-  uv__io_t** watchers;                                                        \
-  unsigned int nwatchers;                                                     \
-  unsigned int nfds;                                                          \
-  void* wq[2];                                                                \
+  void* pending_queue[2]; /** pending队列 **/                                  \
+  void* watcher_queue[2]; /** 待注册事件的watcher队列 **/                       \
+  uv__io_t** watchers;    /** watcher指针数组, fd作为下标 **/                   \
+  unsigned int nwatchers; /** watcher数组大小+2 **/                            \
+  unsigned int nfds;      /** 监听的描述符数量 **/                              \
+                                                                              \
+  void* wq[2];            /** work queue **/                                  \
   uv_mutex_t wq_mutex;                                                        \
   uv_async_t wq_async;                                                        \
+                                                                              \
   uv_rwlock_t cloexec_lock;                                                   \
   uv_handle_t* closing_handles;                                               \
-  void* process_handles[2];                                                   \
-  void* prepare_handles[2];                                                   \
-  void* check_handles[2];                                                     \
-  void* idle_handles[2];                                                      \
+  void* process_handles[2]; /** process队列 **/                                \
+  void* prepare_handles[2]; /** prepare队列 **/                                \
+  void* check_handles[2];   /** check队列 **/                                  \
+  void* idle_handles[2];    /** idle队列 **/                                   \
   void* async_handles[2];                                                     \
   void (*async_unused)(void);  /* TODO(bnoordhuis) Remove in libuv v2. */     \
   uv__io_t async_io_watcher;                                                  \
@@ -242,13 +244,13 @@ typedef struct {
   struct {                                                                    \
     void* min;                                                                \
     unsigned int nelts;                                                       \
-  } timer_heap;                                                               \
-  uint64_t timer_counter;                                                     \
-  uint64_t time;                                                              \
-  int signal_pipefd[2];                                                       \
-  uv__io_t signal_io_watcher;                                                 \
-  uv_signal_t child_watcher;                                                  \
-  int emfile_fd;                                                              \
+  } timer_heap;              /** timer最小堆 **/                               \
+  uint64_t timer_counter;    /** timer数量 **/                                 \
+  uint64_t time;             /** 内部时间, ms **/                              \
+  int signal_pipefd[2];      /** signal管道, 用于信号i/o化 **/                  \
+  uv__io_t signal_io_watcher;/** signal_pipe监听器 **/                         \
+  uv_signal_t child_watcher; /** child_pipe监听器 **/                          \
+  int emfile_fd;             /** 达到最大文件描述符数量时防止一直触发accept **/    \
   UV_PLATFORM_LOOP_FIELDS                                                     \
 
 #define UV_REQ_TYPE_PRIVATE /* empty */
@@ -280,19 +282,19 @@ typedef struct {
   uv_buf_t bufsml[4];                                                         \
 
 #define UV_HANDLE_PRIVATE_FIELDS                                              \
-  uv_handle_t* next_closing;                                                  \
-  unsigned int flags;                                                         \
+  uv_handle_t* next_closing; /** closing队列next指针 **/                       \
+  unsigned int flags;        /** 状态 **/                                      \
 
 #define UV_STREAM_PRIVATE_FIELDS                                              \
-  uv_connect_t *connect_req;                                                  \
-  uv_shutdown_t *shutdown_req;                                                \
-  uv__io_t io_watcher;                                                        \
-  void* write_queue[2];                                                       \
-  void* write_completed_queue[2];                                             \
-  uv_connection_cb connection_cb;                                             \
-  int delayed_error;                                                          \
-  int accepted_fd;                                                            \
-  void* queued_fds;                                                           \
+  uv_connect_t *connect_req;      /** connect请求 **/                          \
+  uv_shutdown_t *shutdown_req;    /** shutdown请求 **/                         \
+  uv__io_t io_watcher;            /** i/o观察者 **/                            \
+  void* write_queue[2];           /** 待写缓冲队列 **/                          \
+  void* write_completed_queue[2]; /** 已写完缓冲队列 **/                        \
+  uv_connection_cb connection_cb; /** new connection回调 **/                   \
+  int delayed_error;              /** 上次流操作错误码 **/                      \
+  int accepted_fd;                /** accept返回的套接字 **/                    \
+  void* queued_fds;               /** 非single_accept时用来保存更多套接字 **/    \
   UV_STREAM_PRIVATE_PLATFORM_FIELDS                                           \
 
 #define UV_TCP_PRIVATE_FIELDS /* empty */

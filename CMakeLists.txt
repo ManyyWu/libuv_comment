@@ -583,3 +583,5 @@ message(STATUS "summary of build options:
       C compiler:    ${CMAKE_C_COMPILER}
       CFLAGS:        ${CMAKE_C_FLAGS_${_build_type}} ${CMAKE_C_FLAGS}
 ")
+
+add_subdirectory(mytest)

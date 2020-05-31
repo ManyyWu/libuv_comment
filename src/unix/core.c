@@ -371,25 +371,21 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     uv__update_time(loop);
     uv__run_timers(loop);
     ran_pending = uv__run_pending(loop);
-    uv__run_idle(loop);
-    uv__run_prepare(loop);
+    uv__run_idle(loop);    /** 存在idle handler时不阻塞io_poll **/
+    uv__run_prepare(loop); /** 与idle区别在于, prepare会阻塞io_poll **/
 
     timeout = 0;
     if ((mode == UV_RUN_ONCE && !ran_pending) || mode == UV_RUN_DEFAULT)
       timeout = uv_backend_timeout(loop);
 
     uv__io_poll(loop, timeout);
-    uv__run_check(loop);
+    uv__run_check(loop);   /** check在io_poll后执行 **/
     uv__run_closing_handles(loop);
 
     if (mode == UV_RUN_ONCE) {
-      /* UV_RUN_ONCE implies forward progress: at least one callback must have
-       * been invoked when it returns. uv__io_poll() can return without doing
-       * I/O (meaning: no callbacks) when its timeout expires - which means we
-       * have pending timers that satisfy the forward progress constraint.
-       *
-       * UV_RUN_NOWAIT makes no guarantees about progress so it's omitted from
-       * the check.
+      /* 这个地方是对UV_RUN_ONCE追加的保证uv__io_poll阻塞之后定时器到期所进行的回调.
+       * 而UV_RUN_NOWAIT则是单纯的为了进行一次i/o轮询, 目的性强不保证进度,
+       * 因此在检查中省略了它。
        */
       uv__update_time(loop);
       uv__run_timers(loop);
@@ -885,6 +881,7 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     return;
 #endif
 
+  /** 将io事件插入watcher_qeuue,待下次io_poll前统一调用事件注册 **/
   if (QUEUE_EMPTY(&w->watcher_queue))
     QUEUE_INSERT_TAIL(&loop->watcher_queue, &w->watcher_queue);
 
@@ -911,6 +908,7 @@ void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   w->pevents &= ~events;
 
   if (w->pevents == 0) {
+    /** 从watcher_queue移除 **/
     QUEUE_REMOVE(&w->watcher_queue);
     QUEUE_INIT(&w->watcher_queue);
 

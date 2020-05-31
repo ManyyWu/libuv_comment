@@ -81,13 +81,13 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 static void uv__write_callbacks(uv_stream_t* stream);
 static size_t uv__write_req_size(uv_write_t* req);
 
-
+/** 初始化流 **/
 void uv__stream_init(uv_loop_t* loop,
                      uv_stream_t* stream,
                      uv_handle_type type) {
   int err;
 
-  uv__handle_init(loop, (uv_handle_t*)stream, type);
+  uv__handle_init(loop, (uv_handle_t*)stream, type); /** 将stream插入handle_queue **/
   stream->read_cb = NULL;
   stream->alloc_cb = NULL;
   stream->close_cb = NULL;
@@ -101,6 +101,7 @@ void uv__stream_init(uv_loop_t* loop,
   QUEUE_INIT(&stream->write_completed_queue);
   stream->write_queue_size = 0;
 
+  /** 创建备用文件描述符 **/
   if (loop->emfile_fd == -1) {
     err = uv__open_cloexec("/dev/null", O_RDONLY);
     if (err < 0)
@@ -116,6 +117,7 @@ void uv__stream_init(uv_loop_t* loop,
   stream->select = NULL;
 #endif /* defined(__APPLE_) */
 
+  /** 初始化i/o观察者 **/
   uv__io_init(&stream->io_watcher, uv__stream_io, -1);
 }
 
@@ -402,22 +404,26 @@ failed_malloc:
 }
 #endif /* defined(__APPLE__) */
 
-
+/** 打开流, 将文件描述符关联到流, 关联之后才可以操作流 **/
 int uv__stream_open(uv_stream_t* stream, int fd, int flags) {
 #if defined(__APPLE__)
   int enable;
 #endif
 
+  /** 流已经打开 **/
   if (!(stream->io_watcher.fd == -1 || stream->io_watcher.fd == fd))
     return UV_EBUSY;
 
+  /** 设置标志 **/
   assert(fd >= 0);
   stream->flags |= flags;
 
   if (stream->type == UV_TCP) {
+    /** 禁用Nagle算法 **/
     if ((stream->flags & UV_HANDLE_TCP_NODELAY) && uv__tcp_nodelay(fd, 1))
       return UV__ERR(errno);
 
+    /** 开启keep_alive **/
     /* TODO Use delay the user passed in. */
     if ((stream->flags & UV_HANDLE_TCP_KEEPALIVE) &&
         uv__tcp_keepalive(fd, 1, 60)) {
@@ -434,6 +440,7 @@ int uv__stream_open(uv_stream_t* stream, int fd, int flags) {
   }
 #endif
 
+  /** fd保存在流中, 以供操作流时使用 **/
   stream->io_watcher.fd = fd;
 
   return 0;

@@ -122,12 +122,14 @@ int uv_tcp_init_ex(uv_loop_t* loop, uv_tcp_t* tcp, unsigned int flags) {
   if (flags & ~0xFF)
     return UV_EINVAL;
 
+  /** 初始化stream **/
   uv__stream_init(loop, (uv_stream_t*)tcp, UV_TCP);
 
   /* If anything fails beyond this point we need to remove the handle from
    * the handle queue, since it was added by uv__handle_init in uv_stream_init.
    */
 
+  /** 创建套接字, 如果(fd == -1) **/
   if (domain != AF_UNSPEC) {
     int err = maybe_new_socket(tcp, domain, 0);
     if (err) {
@@ -333,6 +335,7 @@ int uv_tcp_listen(uv_tcp_t* tcp, int backlog, uv_connection_cb cb) {
   if (tcp->delayed_error)
     return tcp->delayed_error;
 
+  /** 是否单次accept, 默认连续以提高性能 **/
   if (single_accept == -1) {
     const char* val = getenv("UV_TCP_SINGLE_ACCEPT");
     single_accept = (val != NULL && atoi(val) != 0);  /* Off by default. */
