@@ -79,10 +79,10 @@ enum {
   UV_HANDLE_READ_EOF                    = 0x00000800,
 
   /* Used by streams and UDP handles. */
-  UV_HANDLE_READING                     = 0x00001000,
-  UV_HANDLE_BOUND                       = 0x00002000,
-  UV_HANDLE_READABLE                    = 0x00004000,
-  UV_HANDLE_WRITABLE                    = 0x00008000,
+  UV_HANDLE_READING                     = 0x00001000, /** 已监听读事件 **/
+  UV_HANDLE_BOUND                       = 0x00002000, /** 套接字已bind **/
+  UV_HANDLE_READABLE                    = 0x00004000, /** 流可读(属性) **/
+  UV_HANDLE_WRITABLE                    = 0x00008000, /** 流可写(属性) **/
   UV_HANDLE_READ_PENDING                = 0x00010000,
   UV_HANDLE_SYNC_BYPASS_IOCP            = 0x00020000,
   UV_HANDLE_ZERO_READ                   = 0x00040000,
@@ -94,9 +94,9 @@ enum {
   UV_HANDLE_IPV6                        = 0x00400000,
 
   /* Only used by uv_tcp_t handles. */
-  UV_HANDLE_TCP_NODELAY                 = 0x01000000,
+  UV_HANDLE_TCP_NODELAY                 = 0x01000000, /** 禁用Nagle算法 **/
   UV_HANDLE_TCP_KEEPALIVE               = 0x02000000,
-  UV_HANDLE_TCP_SINGLE_ACCEPT           = 0x04000000,
+  UV_HANDLE_TCP_SINGLE_ACCEPT           = 0x04000000, /** 单次accept **/
   UV_HANDLE_TCP_ACCEPT_STATE_CHANGING   = 0x08000000,
   UV_HANDLE_TCP_SOCKET_CLOSED           = 0x10000000,
   UV_HANDLE_SHARED_TCP_SOCKET           = 0x20000000,

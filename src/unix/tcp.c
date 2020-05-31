@@ -340,7 +340,6 @@ int uv_tcp_listen(uv_tcp_t* tcp, int backlog, uv_connection_cb cb) {
     const char* val = getenv("UV_TCP_SINGLE_ACCEPT");
     single_accept = (val != NULL && atoi(val) != 0);  /* Off by default. */
   }
-
   if (single_accept)
     tcp->flags |= UV_HANDLE_TCP_SINGLE_ACCEPT;
 
@@ -352,18 +351,22 @@ int uv_tcp_listen(uv_tcp_t* tcp, int backlog, uv_connection_cb cb) {
   */
   flags |= UV_HANDLE_BOUND;
 #endif
+  /** 确保成功创建套接字并bind, 打开流 **/
   err = maybe_new_socket(tcp, AF_INET, flags);
   if (err)
     return err;
 
+  /** listen **/
   if (listen(tcp->io_watcher.fd, backlog))
     return UV__ERR(errno);
 
+  /** 设置回调 **/
   tcp->connection_cb = cb;
+  /** 设置标志 **/
   tcp->flags |= UV_HANDLE_BOUND;
-
-  /* Start listening for connections. */
+  /** 设置回调 **/
   tcp->io_watcher.cb = uv__server_io;
+  /** 注册读事件 **/
   uv__io_start(tcp->loop, &tcp->io_watcher, POLLIN);
 
   return 0;

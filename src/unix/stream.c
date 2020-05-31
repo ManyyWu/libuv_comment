@@ -446,7 +446,7 @@ int uv__stream_open(uv_stream_t* stream, int fd, int flags) {
   return 0;
 }
 
-
+/** 清空write_queue并为相关request设置错误码 **/
 void uv__stream_flush_write_queue(uv_stream_t* stream, int error) {
   uv_write_t* req;
   QUEUE* q;
@@ -1558,22 +1558,24 @@ int uv_try_write(uv_stream_t* stream,
     return written;
 }
 
-
+/** 切换流状态从paused-->flowing, 当有数据到达流时,
+ * 会调用alloc_cb分配冲区, 将数据写入其中并调用read_cb,
+ * 将数据返回给用户 **/
 int uv_read_start(uv_stream_t* stream,
                   uv_alloc_cb alloc_cb,
                   uv_read_cb read_cb) {
   assert(stream->type == UV_TCP || stream->type == UV_NAMED_PIPE ||
       stream->type == UV_TTY);
 
+  /** 流已关闭 **/
   if (stream->flags & UV_HANDLE_CLOSING)
     return UV_EINVAL;
 
+  /** 流不可读 **/
   if (!(stream->flags & UV_HANDLE_READABLE))
     return UV_ENOTCONN;
 
-  /* The UV_HANDLE_READING flag is irrelevant of the state of the tcp - it just
-   * expresses the desired state of the user.
-   */
+  /** UV_HANDLE_READING标志与tcp的状态无关, 它只是表示用户期望的状态 **/
   stream->flags |= UV_HANDLE_READING;
 
   /* TODO: try to do the read inline? */
@@ -1586,20 +1588,25 @@ int uv_read_start(uv_stream_t* stream,
   stream->read_cb = read_cb;
   stream->alloc_cb = alloc_cb;
 
+  /** 注册读事件 **/
   uv__io_start(stream->loop, &stream->io_watcher, POLLIN);
+  /** 激活handle, 防止loop退出 **/
   uv__handle_start(stream);
   uv__stream_osx_interrupt_select(stream);
 
   return 0;
 }
 
-
+/** 切换流状态从flowing-->paused,  **/
 int uv_read_stop(uv_stream_t* stream) {
   if (!(stream->flags & UV_HANDLE_READING))
     return 0;
 
+  /** 取消状态 **/
   stream->flags &= ~UV_HANDLE_READING;
+  /** 停止监听读事件 **/
   uv__io_stop(stream->loop, &stream->io_watcher, POLLIN);
+  /** 取消激活handle **/
   if (!uv__io_active(&stream->io_watcher, POLLOUT))
     uv__handle_stop(stream);
   uv__stream_osx_interrupt_select(stream);
@@ -1609,12 +1616,12 @@ int uv_read_stop(uv_stream_t* stream) {
   return 0;
 }
 
-
+/** 流是否可读 **/
 int uv_is_readable(const uv_stream_t* stream) {
   return !!(stream->flags & UV_HANDLE_READABLE);
 }
 
-
+/** 流是否可写 **/
 int uv_is_writable(const uv_stream_t* stream) {
   return !!(stream->flags & UV_HANDLE_WRITABLE);
 }

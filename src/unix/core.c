@@ -383,10 +383,10 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     uv__run_closing_handles(loop);
 
     if (mode == UV_RUN_ONCE) {
-      /* 这个地方是对UV_RUN_ONCE追加的保证uv__io_poll阻塞之后定时器到期所进行的回调.
+      /** 这个地方是对UV_RUN_ONCE追加的保证uv__io_poll阻塞之后定时器到期所进行的回调.
        * 而UV_RUN_NOWAIT则是单纯的为了进行一次i/o轮询, 目的性强不保证进度,
        * 因此在检查中省略了它。
-       */
+       **/
       uv__update_time(loop);
       uv__run_timers(loop);
     }
