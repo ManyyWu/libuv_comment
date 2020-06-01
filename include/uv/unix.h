@@ -221,10 +221,10 @@ typedef struct {
 #define UV_LOOP_PRIVATE_FIELDS                                                \
   unsigned long flags;                                                        \
   int backend_fd;                                                             \
-  void* pending_queue[2]; /** pending队列 **/                                  \
-  void* watcher_queue[2]; /** 待注册事件的watcher队列 **/                       \
+  void* pending_queue[2]; /** 待处理的i/o事件队列, 此队列中的io对象都是可写的 **/   \
+  void* watcher_queue[2]; /** 待注册pending队列事件的watcher队列 **/             \
   uv__io_t** watchers;    /** watcher指针数组, fd作为下标 **/                   \
-  unsigned int nwatchers; /** watcher数组大小+2 **/                            \
+  unsigned int nwatchers; /** watcher数组大小+1 **/                            \
   unsigned int nfds;      /** 监听的描述符数量 **/                              \
                                                                               \
   void* wq[2];            /** work queue **/                                  \
@@ -260,11 +260,11 @@ typedef struct {
 #define UV_PRIVATE_REQ_TYPES /* empty */
 
 #define UV_WRITE_PRIVATE_FIELDS                                               \
-  void* queue[2];                                                             \
-  unsigned int write_index;                                                   \
-  uv_buf_t* bufs;                                                             \
-  unsigned int nbufs;                                                         \
-  int error;                                                                  \
+  void* queue[2];           /** 链表节点 **/                                   \
+  unsigned int write_index; /** 当前buf下标 **/                                \
+  uv_buf_t* bufs;           /** iovec **/                                     \
+  unsigned int nbufs;       /** nbufs **/                                     \
+  int error;                /** 错误码 **/                                     \
   uv_buf_t bufsml[4];                                                         \
 
 #define UV_CONNECT_PRIVATE_FIELDS                                             \

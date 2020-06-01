@@ -87,7 +87,7 @@ enum {
   UV_HANDLE_SYNC_BYPASS_IOCP            = 0x00020000,
   UV_HANDLE_ZERO_READ                   = 0x00040000,
   UV_HANDLE_EMULATE_IOCP                = 0x00080000,
-  UV_HANDLE_BLOCKING_WRITES             = 0x00100000,
+  UV_HANDLE_BLOCKING_WRITES             = 0x00100000, /** 阻塞写流 **/
   UV_HANDLE_CANCELLATION_PENDING        = 0x00200000,
 
   /* Used by uv_tcp_t and uv_udp_t handles */

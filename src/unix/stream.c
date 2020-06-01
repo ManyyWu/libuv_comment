@@ -735,12 +735,8 @@ static size_t uv__write_req_size(uv_write_t* req) {
 }
 
 
-/* Returns 1 if all write request data has been written, or 0 if there is still
- * more data to write.
- *
- * Note: the return value only says something about the *current* request.
- * There may still be other write requests sitting in the queue.
- */
+/** 更新缓冲区, 有数据写返回0, 否则返回1. 返回值仅和当前req有关
+ **/
 static int uv__write_req_update(uv_stream_t* stream,
                                 uv_write_t* req,
                                 size_t n) {
@@ -748,6 +744,7 @@ static int uv__write_req_update(uv_stream_t* stream,
   size_t len;
 
   assert(n <= stream->write_queue_size);
+  /** 减少流待写数据字节数 **/
   stream->write_queue_size -= n;
 
   buf = req->bufs + req->write_index;
@@ -769,25 +766,22 @@ static int uv__write_req_update(uv_stream_t* stream,
 static void uv__write_req_finish(uv_write_t* req) {
   uv_stream_t* stream = req->handle;
 
-  /* Pop the req off tcp->write_queue. */
+  /** 删除write_queue节点 **/
   QUEUE_REMOVE(&req->queue);
 
-  /* Only free when there was no error. On error, we touch up write_queue_size
-   * right before making the callback. The reason we don't do that right away
-   * is that a write_queue_size > 0 is our only way to signal to the user that
-   * they should stop writing - which they should if we got an error. Something
-   * to revisit in future revisions of the libuv API.
-   */
+  /** 只有在没有错误的情况下才释放. 如果出错, 我们在进行回调之前立即修改write_queue_size.
+   * 我们不立即执行此操作的原因是, write_queue_size> 0是向用户发出信号的信号, 即他们应该停止写入,
+   * 如果出现错误, 则应该这样做. libuv API的未来版本中有一些需要重新讨论的内容.
+   **/
   if (req->error == 0) {
     if (req->bufs != req->bufsml)
       uv__free(req->bufs);
     req->bufs = NULL;
   }
 
-  /* Add it to the write_completed_queue where it will have its
-   * callback called in the near future.
-   */
+  /** 将其添加到write_completed_queue中, uv_write执行完后将在uv__write_callbacks中回调 **/
   QUEUE_INSERT_TAIL(&stream->write_completed_queue, &req->queue);
+  /** 此时流仍可写, 将io_wather加入pending_queue, 尝试处理下一个write_req  **/
   uv__io_feed(stream->loop, &stream->io_watcher);
 }
 
@@ -822,28 +816,21 @@ start:
   if (QUEUE_EMPTY(&stream->write_queue))
     return;
 
-  q = QUEUE_HEAD(&stream->write_queue);
+  q = QUEUE_HEAD(&stream->write_queue); /** write_queue队首 **/
   req = QUEUE_DATA(q, uv_write_t, queue);
   assert(req->handle == stream);
 
-  /*
-   * Cast to iovec. We had to have our own uv_buf_t instead of iovec
-   * because Windows's WSABUF is not an iovec.
-   */
+  /** 投放到iovec. 我们必须拥有自己的uv_buf_t而不是iovec, 因为Windows的WSABUF不是iovec. **/
   assert(sizeof(uv_buf_t) == sizeof(struct iovec));
   iov = (struct iovec*) &(req->bufs[req->write_index]);
   iovcnt = req->nbufs - req->write_index;
 
+  /** 获取iovec最大大小 **/
   iovmax = uv__getiovmax();
 
-  /* Limit iov count to avoid EINVALs from writev() */
+  /** 防止writev返回EINVAL **/
   if (iovcnt > iovmax)
     iovcnt = iovmax;
-
-  /*
-   * Now do the actual writev. Note that we've been updating the pointers
-   * inside the iov each time we write. So there is no need to offset it.
-   */
 
   if (req->send_handle) {
     int fd_to_send;
@@ -896,24 +883,26 @@ start:
   } else {
     do
       n = uv__writev(uv__stream_fd(stream), iov, iovcnt);
-    while (n == -1 && RETRY_ON_WRITE_ERROR(errno));
+    while (n == -1 && RETRY_ON_WRITE_ERROR(errno)); /** (n == -1 && errno == EINTR) **/
   }
 
+  /** 错误 **/
   if (n == -1 && !IS_TRANSIENT_WRITE_ERROR(errno, req->send_handle)) {
     err = UV__ERR(errno);
     goto error;
   }
 
+  /** 更新缓冲区, 写完则从write_queue删除节点, 释放bufs **/
   if (n >= 0 && uv__write_req_update(stream, req, n)) {
     uv__write_req_finish(req);
     return;  /* TODO(bnoordhuis) Start trying to write the next request. */
   }
 
-  /* If this is a blocking stream, try again. */
+  /** 阻塞流则重试, 直到出错或写完 **/
   if (stream->flags & UV_HANDLE_BLOCKING_WRITES)
     goto start;
 
-  /* We're not done. */
+  /** 没写完, 继续监听写事件. 可以重复调用 **/
   uv__io_start(stream->loop, &stream->io_watcher, POLLOUT);
 
   /* Notify select() thread about state change */
@@ -921,8 +910,10 @@ start:
 
   return;
 
+  /** 流上发生错误 **/
 error:
   req->error = err;
+  /**  **/
   uv__write_req_finish(req);
   uv__io_stop(stream->loop, &stream->io_watcher, POLLOUT);
   if (!uv__io_active(&stream->io_watcher, POLLIN))
@@ -956,6 +947,7 @@ static void uv__write_callbacks(uv_stream_t* stream) {
     }
 
     /* NOTE: call callback AFTER freeing the request data. */
+    /** 调用用户回调 **/
     if (req->cb)
       req->cb(req, req->error);
   }
@@ -1290,7 +1282,7 @@ int uv_shutdown(uv_shutdown_t* req, uv_stream_t* stream, uv_shutdown_cb cb) {
   return 0;
 }
 
-
+/** 分派i/o事件 **/
 static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   uv_stream_t* stream;
 
@@ -1414,6 +1406,7 @@ int uv_write2(uv_write_t* req,
   if (uv__stream_fd(stream) < 0)
     return UV_EBADF;
 
+  /** 流不可写 **/
   if (!(stream->flags & UV_HANDLE_WRITABLE))
     return UV_EPIPE;
 
@@ -1421,11 +1414,9 @@ int uv_write2(uv_write_t* req,
     if (stream->type != UV_NAMED_PIPE || !((uv_pipe_t*)stream)->ipc)
       return UV_EINVAL;
 
-    /* XXX We abuse uv_write2() to send over UDP handles to child processes.
-     * Don't call uv__stream_fd() on those handles, it's a macro that on OS X
-     * evaluates to a function that operates on a uv_stream_t with a couple of
-     * OS X specific fields. On other Unices it does (handle)->io_watcher.fd,
-     * which works but only by accident.
+    /* 我们滥用uv_write2()通过UDP处理将其发送给子进程. 不要在这些句柄上调用uv__stream_fd(),
+     * 它是OS X上评估为在uv_stream_t上运行且具有几个OS X特定字段的函数的宏. 在其他Unices上,
+     * (handle)->io_watcher.fd可以起作用, 但这只是偶然的.
      */
     if (uv__handle_fd((uv_handle_t*) send_handle) < 0)
       return UV_EBADF;
@@ -1437,15 +1428,13 @@ int uv_write2(uv_write_t* req,
 #endif
   }
 
-  /* It's legal for write_queue_size > 0 even when the write_queue is empty;
-   * it means there are error-state requests in the write_completed_queue that
-   * will touch up write_queue_size later, see also uv__write_req_finish().
-   * We could check that write_queue is empty instead but that implies making
-   * a write() syscall when we know that the handle is in error mode.
-   */
+  /** 即使write_queue为空, write_queue_size > 0也合法. 意味着write_completed_queue中存在错误状态请求,
+   * 这些错误状态请求将在以后修改write_queue_size, 另请参见uv__write_req_finish().
+   * 我们可以检查一下write_queue是否为空, 但这意味着当我们知道该句柄处于错误模式时, 将执行一次write()系统调用.
+   **/
   empty_queue = (stream->write_queue_size == 0);
 
-  /* Initialize the req */
+  /** 设置请求类型并注册请求 **/
   uv__req_init(stream->loop, req, UV_WRITE);
   req->cb = cb;
   req->handle = stream;
@@ -1453,38 +1442,36 @@ int uv_write2(uv_write_t* req,
   req->send_handle = send_handle;
   QUEUE_INIT(&req->queue);
 
+  /** 默认iovec大小为4, 超过4时扩容 **/
   req->bufs = req->bufsml;
   if (nbufs > ARRAY_SIZE(req->bufsml))
     req->bufs = uv__malloc(nbufs * sizeof(bufs[0]));
-
   if (req->bufs == NULL)
     return UV_ENOMEM;
 
+  /** 拷贝iovec, 不拷贝数据 **/
   memcpy(req->bufs, bufs, nbufs * sizeof(bufs[0]));
   req->nbufs = nbufs;
   req->write_index = 0;
+  /** 增加流待写字节数 **/
   stream->write_queue_size += uv__count_bufs(bufs, nbufs);
 
-  /* Append the request to write_queue. */
+  /** 将request添加到write_queue. **/
   QUEUE_INSERT_TAIL(&stream->write_queue, &req->queue);
 
-  /* If the queue was empty when this function began, we should attempt to
-   * do the write immediately. Otherwise start the write_watcher and wait
-   * for the fd to become writable.
-   */
+  /** 如果此函数开始时队列为空, 则应尝试立即进行写操作. 则, 启动write_watcher并等待fd变为可写状态. **/
   if (stream->connect_req) {
     /* Still connecting, do nothing. */
+    /** 未连接, 不能写. 次握手成功后connect_req会置NULL **/
   }
   else if (empty_queue) {
+    /** 待写队列为空, 直接写, 允许阻塞写 **/
     uv__write(stream);
   }
   else {
-    /*
-     * blocking streams should never have anything in the queue.
-     * if this assert fires then somehow the blocking stream isn't being
-     * sufficiently flushed in uv__write.
-     */
+    /** 待写队列中有数据时不能使用阻塞流, 否则会乱序 **/
     assert(!(stream->flags & UV_HANDLE_BLOCKING_WRITES));
+    /** 注册写事件 **/
     uv__io_start(stream->loop, &stream->io_watcher, POLLOUT);
     uv__stream_osx_interrupt_select(stream);
   }
@@ -1493,9 +1480,7 @@ int uv_write2(uv_write_t* req,
 }
 
 
-/* The buffers to be written must remain valid until the callback is called.
- * This is not required for the uv_buf_t array.
- */
+/** 在调用回调之前, 要写入的缓冲区必须保持有效. uv_buf_t数组不是必需的 **/
 int uv_write(uv_write_t* req,
              uv_stream_t* handle,
              const uv_buf_t bufs[],

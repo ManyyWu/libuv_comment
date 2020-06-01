@@ -257,8 +257,8 @@ int uv__tcp_connect(uv_connect_t* req,
   QUEUE_INIT(&req->queue);
   handle->connect_req = req;
 
+  /** 监听写事件 **/
   uv__io_start(handle->loop, &handle->io_watcher, POLLOUT);
-
   if (handle->delayed_error)
     uv__io_feed(handle->loop, &handle->io_watcher);
 

@@ -429,6 +429,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
         if (w == &loop->signal_io_watcher)
           have_signals = 1;
         else
+          /** uv__##type##_io(loop, w, pe->events) **/
           w->cb(loop, w, pe->events);
 
         nevents++;

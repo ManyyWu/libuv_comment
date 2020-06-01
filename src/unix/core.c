@@ -223,10 +223,9 @@ int uv__getiovmax(void) {
   static int iovmax = -1;
   if (iovmax == -1) {
     iovmax = sysconf(_SC_IOV_MAX);
-    /* On some embedded devices (arm-linux-uclibc based ip camera),
-     * sysconf(_SC_IOV_MAX) can not get the correct value. The return
-     * value is -1 and the errno is EINPROGRESS. Degrade the value to 1.
-     */
+    /** 在某些嵌入式设备(基于arm-linux-uclibc的IP摄像机)上，sysconf(_SC_IOV_MAX)无法获取正确的值.
+     * 返回值为-1, 而errno为EINPROGRESS, 将该值降级为1.
+     **/
     if (iovmax == -1) iovmax = 1;
   }
   return iovmax;
@@ -385,7 +384,7 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     if (mode == UV_RUN_ONCE) {
       /** 这个地方是对UV_RUN_ONCE追加的保证uv__io_poll阻塞之后定时器到期所进行的回调.
        * 而UV_RUN_NOWAIT则是单纯的为了进行一次i/o轮询, 目的性强不保证进度,
-       * 因此在检查中省略了它。
+       * 因此在检查中省略了它.
        **/
       uv__update_time(loop);
       uv__run_timers(loop);
@@ -793,6 +792,7 @@ static int uv__run_pending(uv_loop_t* loop) {
     QUEUE_REMOVE(q);
     QUEUE_INIT(q);
     w = QUEUE_DATA(q, uv__io_t, pending_queue);
+    /** uv__##type##_io(loop, w, POLLOUT) **/
     w->cb(loop, w, POLLOUT);
   }
 
@@ -862,7 +862,7 @@ void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd) {
 #endif /* defined(UV_HAVE_KQUEUE) */
 }
 
-
+/** 开始监听事件 **/
 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   assert(0 == (events & ~(POLLIN | POLLOUT | UV__POLLRDHUP | UV__POLLPRI)));
   assert(0 != events);
@@ -870,6 +870,7 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   assert(w->fd < INT_MAX);
 
   w->pevents |= events;
+  /** loop->watchers空间不足时重新分配, 大小为最大fd+1 **/
   maybe_resize(loop, w->fd + 1);
 
 #if !defined(__sun)
@@ -881,17 +882,18 @@ void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     return;
 #endif
 
-  /** 将io事件插入watcher_qeuue,待下次io_poll前统一调用事件注册 **/
+  /** 将watcher插入watcher_qeuue,待下次io_poll前统一调用事件注册 **/
   if (QUEUE_EMPTY(&w->watcher_queue))
     QUEUE_INSERT_TAIL(&loop->watcher_queue, &w->watcher_queue);
 
+  /** 将watcher添加到loop->watchers **/
   if (loop->watchers[w->fd] == NULL) {
     loop->watchers[w->fd] = w;
     loop->nfds++;
   }
 }
 
-
+/** 停止监听事件 **/
 void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   assert(0 == (events & ~(POLLIN | POLLOUT | UV__POLLRDHUP | UV__POLLPRI)));
   assert(0 != events);
