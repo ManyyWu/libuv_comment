@@ -101,7 +101,7 @@ void uv__stream_init(uv_loop_t* loop,
   QUEUE_INIT(&stream->write_completed_queue);
   stream->write_queue_size = 0;
 
-  /** 创建备用文件描述符 **/
+  /** 创建备用文件描述符, uv__stream_init第一次调用和uv__stream_connect创建失败时起作用 **/
   if (loop->emfile_fd == -1) {
     err = uv__open_cloexec("/dev/null", O_RDONLY);
     if (err < 0)
@@ -568,20 +568,24 @@ void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
           break;
       }
 
+      /** accpet错误 **/
       stream->connection_cb(stream, err);
       continue;
     }
 
     UV_DEC_BACKLOG(w)
+    /** 新连接就绪 **/
     stream->accepted_fd = err;
     stream->connection_cb(stream, 0);
 
+    /** 未使用uv_accept连接或使用uv_close关闭连接 **/
     if (stream->accepted_fd != -1) {
-      /* The user hasn't yet accepted called uv_accept() */
+      /** 先停止监听读事件, 待uv_accept重新打开 **/
       uv__io_stop(loop, &stream->io_watcher, POLLIN);
       return;
     }
 
+    /** 休眠一会，分点给别的进程accept **/
     if (stream->type == UV_TCP &&
         (stream->flags & UV_HANDLE_TCP_SINGLE_ACCEPT)) {
       /* Give other processes a chance to accept connections. */
@@ -631,7 +635,7 @@ int uv_accept(uv_stream_t* server, uv_stream_t* client) {
   client->flags |= UV_HANDLE_BOUND;
 
 done:
-  /* Process queued fds */
+  /** 非single_accept时, 可连续调用uv_accept, 直到返回UV_EAGAIN **/
   if (server->queued_fds != NULL) {
     uv__stream_queued_fds_t* queued_fds;
 
@@ -652,6 +656,7 @@ done:
               queued_fds->offset * sizeof(*queued_fds->fds));
     }
   } else {
+    /** 重新监听读事件 **/
     server->accepted_fd = -1;
     if (err == 0)
       uv__io_start(server->loop, &server->io_watcher, POLLIN);
@@ -688,10 +693,11 @@ static void uv__drain(uv_stream_t* stream) {
   int err;
 
   assert(QUEUE_EMPTY(&stream->write_queue));
+  /** 停止监听写事件, 防止一直触发写事件 **/
   uv__io_stop(stream->loop, &stream->io_watcher, POLLOUT);
   uv__stream_osx_interrupt_select(stream);
 
-  /* Shutdown? */
+  /* 请求shutdown */
   if ((stream->flags & UV_HANDLE_SHUTTING) &&
       !(stream->flags & UV_HANDLE_CLOSING) &&
       !(stream->flags & UV_HANDLE_SHUT)) {
@@ -709,6 +715,7 @@ static void uv__drain(uv_stream_t* stream) {
     if (err == 0)
       stream->flags |= UV_HANDLE_SHUT;
 
+    /** 回调 **/
     if (req->cb != NULL)
       req->cb(req, err);
   }
@@ -913,9 +920,11 @@ start:
   /** 流上发生错误 **/
 error:
   req->error = err;
-  /**  **/
+  /** 将错误返回给用户 **/
   uv__write_req_finish(req);
+  /** 停止监听写事件 **/
   uv__io_stop(stream->loop, &stream->io_watcher, POLLOUT);
+  /** 没监听读事件则关闭流(稍后在uv__run_closing_handles中关闭) **/
   if (!uv__io_active(&stream->io_watcher, POLLIN))
     uv__handle_stop(stream);
   uv__stream_osx_interrupt_select(stream);
@@ -1276,6 +1285,7 @@ int uv_shutdown(uv_shutdown_t* req, uv_stream_t* stream, uv_shutdown_cb cb) {
   stream->shutdown_req = req;
   stream->flags |= UV_HANDLE_SHUTTING;
 
+  /** 先把数据写完, 然后uv__stream_io中的uv__drain中调用shutdown **/
   uv__io_start(stream->loop, &stream->io_watcher, POLLOUT);
   uv__stream_osx_interrupt_select(stream);
 
@@ -1328,7 +1338,7 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     uv__write(stream);
     uv__write_callbacks(stream);
 
-    /* Write queue drained. */
+    /** write_queue耗尽 **/
     if (QUEUE_EMPTY(&stream->write_queue))
       uv__drain(stream);
   }
@@ -1582,7 +1592,7 @@ int uv_read_start(uv_stream_t* stream,
   return 0;
 }
 
-/** 切换流状态从flowing-->paused,  **/
+/** 切换流状态从flowing-->paused **/
 int uv_read_stop(uv_stream_t* stream) {
   if (!(stream->flags & UV_HANDLE_READING))
     return 0;
@@ -1654,11 +1664,14 @@ void uv__stream_close(uv_stream_t* handle) {
   }
 #endif /* defined(__APPLE__) */
 
+  /** 停止所有事件的监听 **/
   uv__io_close(handle->loop, &handle->io_watcher);
+  /** 主要是重置cb, 唤醒loop(OS X) **/
   uv_read_stop(handle);
   uv__handle_stop(handle);
   handle->flags &= ~(UV_HANDLE_READABLE | UV_HANDLE_WRITABLE);
 
+  /** 关闭流本身的fd **/
   if (handle->io_watcher.fd != -1) {
     /* Don't close stdio file descriptors.  Nothing good comes from it. */
     if (handle->io_watcher.fd > STDERR_FILENO)
@@ -1666,12 +1679,11 @@ void uv__stream_close(uv_stream_t* handle) {
     handle->io_watcher.fd = -1;
   }
 
+  /** 如果是listener, 关闭所有accept的fd **/
   if (handle->accepted_fd != -1) {
     uv__close(handle->accepted_fd);
     handle->accepted_fd = -1;
   }
-
-  /* Close all queued fds */
   if (handle->queued_fds != NULL) {
     queued_fds = handle->queued_fds;
     for (i = 0; i < queued_fds->offset; i++)

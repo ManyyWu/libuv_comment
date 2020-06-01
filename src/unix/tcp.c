@@ -259,8 +259,10 @@ int uv__tcp_connect(uv_connect_t* req,
 
   /** 监听写事件 **/
   uv__io_start(handle->loop, &handle->io_watcher, POLLOUT);
+  /** 有错误, uv__stream_io-->uv__stream_connect-->getsockopt, 回调 **/
   if (handle->delayed_error)
     uv__io_feed(handle->loop, &handle->io_watcher);
+  /** 成功, uv__stream_io-->uv__stream_connect, 回调 **/
 
   return 0;
 }

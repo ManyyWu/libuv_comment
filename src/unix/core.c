@@ -913,7 +913,7 @@ void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
     /** 从watcher_queue移除 **/
     QUEUE_REMOVE(&w->watcher_queue);
     QUEUE_INIT(&w->watcher_queue);
-
+    /** 从loop->watchers移除 **/
     if (loop->watchers[w->fd] != NULL) {
       assert(loop->watchers[w->fd] == w);
       assert(loop->nfds > 0);
@@ -942,7 +942,7 @@ void uv__io_feed(uv_loop_t* loop, uv__io_t* w) {
     QUEUE_INSERT_TAIL(&loop->pending_queue, &w->pending_queue);
 }
 
-
+/** 是否正在监听events **/
 int uv__io_active(const uv__io_t* w, unsigned int events) {
   assert(0 == (events & ~(POLLIN | POLLOUT | UV__POLLRDHUP | UV__POLLPRI)));
   assert(0 != events);
