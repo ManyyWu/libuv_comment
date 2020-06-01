@@ -265,7 +265,7 @@ typedef struct {
   uv_buf_t* bufs;           /** iovec **/                                     \
   unsigned int nbufs;       /** nbufs **/                                     \
   int error;                /** 错误码 **/                                     \
-  uv_buf_t bufsml[4];                                                         \
+  uv_buf_t bufsml[4];       /** 默认bufs **/                                   \
 
 #define UV_CONNECT_PRIVATE_FIELDS                                             \
   void* queue[2];                                                             \

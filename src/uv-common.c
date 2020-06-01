@@ -569,7 +569,7 @@ uint64_t uv_now(const uv_loop_t* loop) {
 }
 
 
-
+/** 获取bufs总字节数 **/
 size_t uv__count_bufs(const uv_buf_t bufs[], unsigned int nbufs) {
   unsigned int i;
   size_t bytes;

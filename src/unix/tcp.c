@@ -242,10 +242,10 @@ int uv__tcp_connect(uv_connect_t* req,
       || errno == EINVAL
 #endif
       )
-    /* If we get ECONNREFUSED (Solaris) or EINVAL (OpenBSD) wait until the
-     * next tick to report the error. Solaris and OpenBSD wants to report
-     * immediately -- other unixes want to wait.
-     */
+    /**
+     * 如果得到ECONNREFUSED(Solaris)或EINVAL(OpenBSD), 等到next tick报告错误.
+     * Solaris和OpenBSD要立即报告-其他Unix要等待.
+     **/
       handle->delayed_error = UV__ERR(ECONNREFUSED);
     else
       return UV__ERR(errno);
@@ -262,8 +262,8 @@ int uv__tcp_connect(uv_connect_t* req,
   /** 有错误, uv__stream_io-->uv__stream_connect-->getsockopt, 回调 **/
   if (handle->delayed_error)
     uv__io_feed(handle->loop, &handle->io_watcher);
-  /** 成功, uv__stream_io-->uv__stream_connect, 回调 **/
 
+  /** 成功, uv__stream_io-->uv__stream_connect, 回调 **/
   return 0;
 }
 

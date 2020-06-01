@@ -108,7 +108,7 @@ uint64_t uv_hrtime(void) {
   return uv__hrtime(UV_CLOCK_PRECISE);
 }
 
-
+/** 关闭handle **/
 void uv_close(uv_handle_t* handle, uv_close_cb close_cb) {
   assert(!uv__is_closing(handle));
 
@@ -238,14 +238,12 @@ int uv__getiovmax(void) {
 static void uv__finish_close(uv_handle_t* handle) {
   uv_signal_t* sh;
 
-  /* Note: while the handle is in the UV_HANDLE_CLOSING state now, it's still
-   * possible for it to be active in the sense that uv__is_active() returns
-   * true.
+  /** 注意: 当句柄现在处于UV_HANDLE_CLOSING状态时, 从uv__is_active()返回true的意义上说,
+   * 它仍然可能处于活动状态.
    *
-   * A good example is when the user calls uv_shutdown(), immediately followed
-   * by uv_close(). The handle is considered active at this point because the
-   * completion of the shutdown req is still pending.
-   */
+   * 一个很好的例子是用户调用uv_shutdown(), 然后紧接着uv_close().
+   * 由于关闭请求尚未完成, 因此该句柄在此时被认为是活动的.
+   **/
   assert(handle->flags & UV_HANDLE_CLOSING);
   assert(!(handle->flags & UV_HANDLE_CLOSED));
   handle->flags |= UV_HANDLE_CLOSED;

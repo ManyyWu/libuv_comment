@@ -461,20 +461,24 @@ void uv__stream_flush_write_queue(uv_stream_t* stream, int error) {
   }
 }
 
-
+/** 清除stream中的requests **/
 void uv__stream_destroy(uv_stream_t* stream) {
   assert(!uv__io_active(&stream->io_watcher, POLLIN | POLLOUT));
   assert(stream->flags & UV_HANDLE_CLOSED);
 
+  /** 取消connect_req **/
   if (stream->connect_req) {
     uv__req_unregister(stream->loop, stream->connect_req);
     stream->connect_req->cb(stream->connect_req, UV_ECANCELED);
     stream->connect_req = NULL;
   }
 
+  /** 取消所有write_req, 即从write_queue移动到complete_queue **/
   uv__stream_flush_write_queue(stream, UV_ECANCELED);
+  /** 遍历complete_queue, 回调返回错误码 **/
   uv__write_callbacks(stream);
 
+  /** 取消shutdown_req **/
   if (stream->shutdown_req) {
     /* The ECANCELED error code is a lie, the shutdown(2) syscall is a
      * fait accompli at this point. Maybe we should revisit this in v0.11.
@@ -508,15 +512,18 @@ static int uv__emfile_trick(uv_loop_t* loop, int accept_fd) {
   if (loop->emfile_fd == -1)
     return UV_EMFILE;
 
+  /** 关闭emfile_fd **/
   uv__close(loop->emfile_fd);
   loop->emfile_fd = -1;
 
+  /** accpet并关闭 **/
   do {
     err = uv__accept(accept_fd);
     if (err >= 0)
       uv__close(err);
   } while (err >= 0 || err == UV_EINTR);
 
+  /** 创建emfile_fd, 未成功会在下次uv__stream_init尝试创建 **/
   emfile_fd = uv__open_cloexec("/", O_RDONLY);
   if (emfile_fd >= 0)
     loop->emfile_fd = emfile_fd;
@@ -632,6 +639,7 @@ int uv_accept(uv_stream_t* server, uv_stream_t* client) {
       return UV_EINVAL;
   }
 
+  /** 绑定内核分配的地址和端口 **/
   client->flags |= UV_HANDLE_BOUND;
 
 done:
@@ -742,7 +750,8 @@ static size_t uv__write_req_size(uv_write_t* req) {
 }
 
 
-/** 更新缓冲区, 有数据写返回0, 否则返回1. 返回值仅和当前req有关
+/**
+ * 更新缓冲区, 有数据写返回0, 否则返回1. 返回值仅和当前req有关
  **/
 static int uv__write_req_update(uv_stream_t* stream,
                                 uv_write_t* req,
@@ -776,7 +785,8 @@ static void uv__write_req_finish(uv_write_t* req) {
   /** 删除write_queue节点 **/
   QUEUE_REMOVE(&req->queue);
 
-  /** 只有在没有错误的情况下才释放. 如果出错, 我们在进行回调之前立即修改write_queue_size.
+  /**
+   * 只有在没有错误的情况下才释放. 如果出错, 我们在进行回调之前立即修改write_queue_size.
    * 我们不立即执行此操作的原因是, write_queue_size> 0是向用户发出信号的信号, 即他们应该停止写入,
    * 如果出现错误, 则应该这样做. libuv API的未来版本中有一些需要重新讨论的内容.
    **/
@@ -1345,11 +1355,6 @@ static void uv__stream_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 }
 
 
-/**
- * We get called here from directly following a call to connect(2).
- * In order to determine if we've errored out or succeeded must call
- * getsockopt.
- */
 static void uv__stream_connect(uv_stream_t* stream) {
   int error;
   uv_connect_t* req = stream->connect_req;
@@ -1359,14 +1364,13 @@ static void uv__stream_connect(uv_stream_t* stream) {
   assert(req);
 
   if (stream->delayed_error) {
-    /* To smooth over the differences between unixes errors that
-     * were reported synchronously on the first connect can be delayed
-     * until the next tick--which is now.
-     */
+    /** 为了消除第一次连接上同步报告的unix错误之间的差异, 可以将其延迟到next tick. */
     error = stream->delayed_error;
     stream->delayed_error = 0;
   } else {
-    /* Normal situation: we need to get the socket error from the kernel. */
+    /**
+     * 我们在直接调用connect(2)之后被调用. 为了确定我们是否出错或成功, 必须调用getsockopt从内核获取错误.
+     **/
     assert(uv__stream_fd(stream) >= 0);
     getsockopt(uv__stream_fd(stream),
                SOL_SOCKET,
@@ -1382,16 +1386,19 @@ static void uv__stream_connect(uv_stream_t* stream) {
   stream->connect_req = NULL;
   uv__req_unregister(stream->loop, req);
 
+  /** 停止监听 **/
   if (error < 0 || QUEUE_EMPTY(&stream->write_queue)) {
     uv__io_stop(stream->loop, &stream->io_watcher, POLLOUT);
   }
 
+  /** 回调 **/
   if (req->cb)
     req->cb(req, error);
 
   if (uv__stream_fd(stream) == -1)
     return;
 
+  /** 清除write_req **/
   if (error < 0) {
     uv__stream_flush_write_queue(stream, UV_ECANCELED);
     uv__write_callbacks(stream);
@@ -1438,7 +1445,8 @@ int uv_write2(uv_write_t* req,
 #endif
   }
 
-  /** 即使write_queue为空, write_queue_size > 0也合法. 意味着write_completed_queue中存在错误状态请求,
+  /**
+   * 即使write_queue为空, write_queue_size > 0也合法. 意味着write_completed_queue中存在错误状态请求,
    * 这些错误状态请求将在以后修改write_queue_size, 另请参见uv__write_req_finish().
    * 我们可以检查一下write_queue是否为空, 但这意味着当我们知道该句柄处于错误模式时, 将执行一次write()系统调用.
    **/
@@ -1505,7 +1513,7 @@ void uv_try_write_cb(uv_write_t* req, int status) {
   abort();
 }
 
-
+/** 如果不能马上写, 不会投递write_req **/
 int uv_try_write(uv_stream_t* stream,
                  const uv_buf_t bufs[],
                  unsigned int nbufs) {
@@ -1553,7 +1561,8 @@ int uv_try_write(uv_stream_t* stream,
     return written;
 }
 
-/** 切换流状态从paused-->flowing, 当有数据到达流时,
+/**
+ * 切换流状态从paused-->flowing, 当有数据到达流时,
  * 会调用alloc_cb分配冲区, 将数据写入其中并调用read_cb,
  * 将数据返回给用户 **/
 int uv_read_start(uv_stream_t* stream,
@@ -1638,7 +1647,7 @@ int uv___stream_fd(const uv_stream_t* handle) {
 }
 #endif /* defined(__APPLE__) */
 
-
+/** 关闭流: 停止事件监听, 关闭fd, 关闭accpet_fd, reqests在uv__stream_destroy中清除 **/
 void uv__stream_close(uv_stream_t* handle) {
   unsigned int i;
   uv__stream_queued_fds_t* queued_fds;

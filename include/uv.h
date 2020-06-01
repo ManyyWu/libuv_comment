@@ -431,7 +431,7 @@ struct uv_shutdown_s {
   uv_loop_t* loop;      /** 关联loop **/                                       \
   uv_handle_type type;  /** type **/                                          \
   /* private */                                                               \
-  uv_close_cb close_cb;                                                       \
+  uv_close_cb close_cb; /** 关闭回调 **/                                       \
   void* handle_queue[2];/** handle_queue节点 **/                               \
   union {                                                                     \
     int fd;                                                                   \
