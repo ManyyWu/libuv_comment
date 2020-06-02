@@ -705,7 +705,7 @@ static void uv__drain(uv_stream_t* stream) {
   uv__io_stop(stream->loop, &stream->io_watcher, POLLOUT);
   uv__stream_osx_interrupt_select(stream);
 
-  /* 请求shutdown */
+  /** 请求shutdown **/
   if ((stream->flags & UV_HANDLE_SHUTTING) &&
       !(stream->flags & UV_HANDLE_CLOSING) &&
       !(stream->flags & UV_HANDLE_SHUT)) {
@@ -1438,10 +1438,11 @@ int uv_write2(uv_write_t* req,
     if (stream->type != UV_NAMED_PIPE || !((uv_pipe_t*)stream)->ipc)
       return UV_EINVAL;
 
-    /* 我们滥用uv_write2()通过UDP处理将其发送给子进程. 不要在这些句柄上调用uv__stream_fd(),
+    /**
+     * 我们滥用uv_write2()通过UDP处理将其发送给子进程. 不要在这些句柄上调用uv__stream_fd(),
      * 它是OS X上评估为在uv_stream_t上运行且具有几个OS X特定字段的函数的宏. 在其他Unices上,
      * (handle)->io_watcher.fd可以起作用, 但这只是偶然的.
-     */
+     **/
     if (uv__handle_fd((uv_handle_t*) send_handle) < 0)
       return UV_EBADF;
 
