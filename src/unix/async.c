@@ -68,7 +68,7 @@ int uv_async_send(uv_async_t* handle) {
     return 0;
 
   /* Tell the other thread we're busy with the handle. */
-  /** false: 其他线程已发送或发送中 **/
+  /** old != 0: 1 or 2其他线珵正在处理 **/
   if (cmpxchgi(&handle->pending, 0, 1) != 0)
     return 0;
 
@@ -76,7 +76,7 @@ int uv_async_send(uv_async_t* handle) {
   uv__async_send(handle->loop);
 
   /* Tell the other thread we're done. */
-  /** false: 其他线程已发送, 理论上不会出现该情况 **/
+  /** old != 1: 未决, 理论上不会出现该情况 **/
   if (cmpxchgi(&handle->pending, 1, 2) != 1)
     abort();
 
@@ -105,12 +105,15 @@ static int uv__async_spin(uv_async_t* handle) {
 
       /* Other thread is busy with this handle, spin until it's done. */
       cpu_relax();
+
+      /** rc == 1: 处理中, 自旋 **/
     }
 
     /* Yield the CPU. We may have preempted the other thread while it's
      * inside the critical section and if it's running on the same CPU
      * as us, we'll just burn CPU cycles until the end of our time slice.
      */
+    /** 主动让出时间片 **/
     sched_yield();
   }
 }
