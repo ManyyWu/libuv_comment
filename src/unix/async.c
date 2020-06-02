@@ -45,6 +45,7 @@ static int uv__async_start(uv_loop_t* loop);
 int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
   int err;
 
+  /** 初始化唯一的async_io_wather **/
   err = uv__async_start(loop);
   if (err)
     return err;
@@ -53,6 +54,7 @@ int uv_async_init(uv_loop_t* loop, uv_async_t* handle, uv_async_cb async_cb) {
   handle->async_cb = async_cb;
   handle->pending = 0;
 
+  /** 将handle插入async队列, 当loop被唤醒时, pending状态的handle将会回调 **/
   QUEUE_INSERT_TAIL(&loop->async_handles, &handle->queue);
   uv__handle_start(handle);
 
@@ -66,6 +68,7 @@ int uv_async_send(uv_async_t* handle) {
     return 0;
 
   /* Tell the other thread we're busy with the handle. */
+  /** false: 其他线程已发送或发送中 **/
   if (cmpxchgi(&handle->pending, 0, 1) != 0)
     return 0;
 
@@ -73,6 +76,7 @@ int uv_async_send(uv_async_t* handle) {
   uv__async_send(handle->loop);
 
   /* Tell the other thread we're done. */
+  /** false: 其他线程已发送, 理论上不会出现该情况 **/
   if (cmpxchgi(&handle->pending, 1, 2) != 1)
     abort();
 
@@ -207,36 +211,42 @@ static int uv__async_start(uv_loop_t* loop) {
     return 0;
 
 #ifdef __linux__
-  err = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+  /** linux使用eventfd **/
+  err = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK); /** 非阻塞 **/
   if (err < 0)
     return UV__ERR(errno);
 
   pipefd[0] = err;
   pipefd[1] = -1;
 #else
-  err = uv__make_pipe(pipefd, UV__F_NONBLOCK);
+  /** unix使用无名管道 **/
+  err = uv__make_pipe(pipefd, UV__F_NONBLOCK); /** 非阻塞 **/
   if (err < 0)
     return err;
 #endif
 
+  /** 初始化i/o观察者 **/
   uv__io_init(&loop->async_io_watcher, uv__async_io, pipefd[0]);
+  /** 监听读事件 **/
   uv__io_start(loop, &loop->async_io_watcher, POLLIN);
+  /** 保存写端fd, 唤醒时使用 **/
   loop->async_wfd = pipefd[1];
 
   return 0;
 }
 
-
+/** 如果是打开状态, fork后子进程关闭async并重新打开 **/
 int uv__async_fork(uv_loop_t* loop) {
   if (loop->async_io_watcher.fd == -1) /* never started */
     return 0;
 
+  /** fork后exec之前并不会关闭从父进程继承的fd **/
   uv__async_stop(loop);
 
   return uv__async_start(loop);
 }
 
-
+/** 关闭async **/
 void uv__async_stop(uv_loop_t* loop) {
   if (loop->async_io_watcher.fd == -1)
     return;

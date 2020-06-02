@@ -237,10 +237,10 @@ typedef struct {
   void* prepare_handles[2]; /** prepare队列 **/                                \
   void* check_handles[2];   /** check队列 **/                                  \
   void* idle_handles[2];    /** idle队列 **/                                   \
-  void* async_handles[2];                                                     \
+  void* async_handles[2];   /** async队列 **/                                  \
   void (*async_unused)(void);  /* TODO(bnoordhuis) Remove in libuv v2. */     \
-  uv__io_t async_io_watcher;                                                  \
-  int async_wfd;                                                              \
+  uv__io_t async_io_watcher;/** async观察者, 用于唤醒loop **/                   \
+  int async_wfd;            /** async写端 */                                   \
   struct {                                                                    \
     void* min;                                                                \
     unsigned int nelts;                                                       \
@@ -325,9 +325,9 @@ typedef struct {
   void* queue[2];                                                             \
 
 #define UV_ASYNC_PRIVATE_FIELDS                                               \
-  uv_async_cb async_cb;                                                       \
-  void* queue[2];                                                             \
-  int pending;                                                                \
+  uv_async_cb async_cb; /** 发送信号时回调 **/                                  \
+  void* queue[2];       /** async队列节点 **/                                  \
+  int pending;          /** 1: 已发送唤醒信号 **/                               \
 
 #define UV_TIMER_PRIVATE_FIELDS                                               \
   uv_timer_cb timer_cb;                                                       \
