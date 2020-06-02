@@ -1145,6 +1145,7 @@ static void uv__read(uv_stream_t* stream) {
   /* Prevent loop starvation when the data comes in as fast as (or faster than)
    * we can read it. XXX Need to rearm fd if we switch to edge-triggered I/O.
    */
+  /** 防止阻塞 **/
   count = 32;
 
   is_ipc = stream->type == UV_NAMED_PIPE && ((uv_pipe_t*) stream)->ipc;
@@ -1157,6 +1158,7 @@ static void uv__read(uv_stream_t* stream) {
       && (count-- > 0)) {
     assert(stream->alloc_cb != NULL);
 
+    /** 用户分配内存, uv不会保存, 在回调用释放, 也可以重复使用 **/
     buf = uv_buf_init(NULL, 0);
     stream->alloc_cb((uv_handle_t*)stream, 64 * 1024, &buf);
     if (buf.base == NULL || buf.len == 0) {
@@ -1191,7 +1193,6 @@ static void uv__read(uv_stream_t* stream) {
     }
 
     if (nread < 0) {
-      /* Error */
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         /* Wait for the next one. */
         if (stream->flags & UV_HANDLE_READING) {
@@ -1201,6 +1202,7 @@ static void uv__read(uv_stream_t* stream) {
         stream->read_cb(stream, 0, &buf);
 #if defined(__CYGWIN__) || defined(__MSYS__)
       } else if (errno == ECONNRESET && stream->type == UV_NAMED_PIPE) {
+        /** EOF **/
         uv__stream_eof(stream, &buf);
         return;
 #endif
@@ -1217,6 +1219,7 @@ static void uv__read(uv_stream_t* stream) {
       }
       return;
     } else if (nread == 0) {
+      /** EOF **/
       uv__stream_eof(stream, &buf);
       return;
     } else {
@@ -1254,13 +1257,17 @@ static void uv__read(uv_stream_t* stream) {
         msg.msg_iov = old;
       }
 #endif
+      /** 回调 **/
       stream->read_cb(stream, nread, &buf);
 
       /* Return if we didn't fill the buffer, there is no more data to read. */
+      /** tcp缓冲区为空了 **/
       if (nread < buflen) {
         stream->flags |= UV_HANDLE_READ_PARTIAL;
         return;
       }
+
+      /** tcp缓冲区仍有数据, continue **/
     }
   }
 }

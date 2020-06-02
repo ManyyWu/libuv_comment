@@ -267,10 +267,11 @@ int uv__tcp_connect(uv_connect_t* req,
   return 0;
 }
 
-
+/** 使用用户创建的套接字 **/
 int uv_tcp_open(uv_tcp_t* handle, uv_os_sock_t sock) {
   int err;
 
+  /** 已打开 **/
   if (uv__fd_exists(handle->loop, sock))
     return UV_EEXIST;
 
@@ -278,6 +279,7 @@ int uv_tcp_open(uv_tcp_t* handle, uv_os_sock_t sock) {
   if (err)
     return err;
 
+  /** 初始化流 **/
   return uv__stream_open((uv_stream_t*)handle,
                          sock,
                          UV_HANDLE_READABLE | UV_HANDLE_WRITABLE);
@@ -311,7 +313,7 @@ int uv_tcp_getpeername(const uv_tcp_t* handle,
                              namelen);
 }
 
-
+/** 向对端发送REST并关闭套接字, 防止TIME_WAIT **/
 int uv_tcp_close_reset(uv_tcp_t* handle, uv_close_cb close_cb) {
   int fd;
   struct linger l = { 1, 0 };
@@ -451,7 +453,7 @@ int uv_tcp_keepalive(uv_tcp_t* handle, int on, unsigned int delay) {
   return 0;
 }
 
-
+/** 打开/关闭连续accept **/
 int uv_tcp_simultaneous_accepts(uv_tcp_t* handle, int enable) {
   if (enable)
     handle->flags &= ~UV_HANDLE_TCP_SINGLE_ACCEPT;
