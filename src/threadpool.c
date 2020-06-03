@@ -41,6 +41,7 @@ static QUEUE exit_message;          /** 标记 **/
 static QUEUE wq;                    /** 待执行队列 **/
 static QUEUE run_slow_work_message; /** 标记 **/
 static QUEUE slow_io_pending_wq;    /** 慢i/o延迟队列 **/
+                                    /** loop->wq为执行完的队列 **/
 
 static unsigned int slow_work_thread_threshold(void) {
   return (nthreads + 1) / 2;
@@ -130,6 +131,7 @@ static void worker(void* arg) {
 
     /** 处理任务 **/
     w = QUEUE_DATA(q, struct uv__work, wq);
+    /** uv__queue_work-->wrok_cb **/
     w->work(w);
 
     uv_mutex_lock(&w->loop->wq_mutex);
@@ -137,6 +139,10 @@ static void worker(void* arg) {
     QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
     uv_async_send(&w->loop->wq_async);
     uv_mutex_unlock(&w->loop->wq_mutex);
+    /**
+     * loop唤醒后执行顺序:
+     * uv__io_poll-->uv__async_io-->uv_work_done-->uv_queue_done-->after_work_cb
+     * **/
 
     /* Lock `mutex` since that is expected at the start of the next
      * iteration. */
@@ -271,6 +277,7 @@ void uv__work_submit(uv_loop_t* loop,
                      enum uv__work_kind kind,
                      void (*work)(struct uv__work* w),
                      void (*done)(struct uv__work* w, int status)) {
+  /** 初始化纯程池 **/
   uv_once(&once, init_once);
   w->loop = loop;
   w->work = work;
@@ -285,6 +292,7 @@ static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
   uv_mutex_lock(&mutex);
   uv_mutex_lock(&w->loop->wq_mutex);
 
+  /** !QUEUE_EMPTY(&w->wq): 未加入队列. w->work != NULLi: 已执行完 **/
   cancelled = !QUEUE_EMPTY(&w->wq) && w->work != NULL;
   if (cancelled)
     QUEUE_REMOVE(&w->wq);
@@ -304,7 +312,7 @@ static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
   return 0;
 }
 
-
+/** 由uv__async_io调用 **/
 void uv__work_done(uv_async_t* handle) {
   struct uv__work* w;
   uv_loop_t* loop;

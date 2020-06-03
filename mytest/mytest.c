@@ -16,7 +16,7 @@ void fake_download(uv_work_t *req) {
     async.data = (void*) &percentage;
     uv_async_send(&async);
 
-    uv_sleep(1000);
+    uv_sleep(100);
     downloaded += (200+random())%1000; // can only download max 1000bytes/sec,
     // but at least a 200;
   }
