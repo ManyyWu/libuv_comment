@@ -223,7 +223,8 @@ int uv__getiovmax(void) {
   static int iovmax = -1;
   if (iovmax == -1) {
     iovmax = sysconf(_SC_IOV_MAX);
-    /** 在某些嵌入式设备(基于arm-linux-uclibc的IP摄像机)上，sysconf(_SC_IOV_MAX)无法获取正确的值.
+    /**
+     * 在某些嵌入式设备(基于arm-linux-uclibc的IP摄像机)上，sysconf(_SC_IOV_MAX)无法获取正确的值.
      * 返回值为-1, 而errno为EINPROGRESS, 将该值降级为1.
      **/
     if (iovmax == -1) iovmax = 1;
@@ -238,7 +239,8 @@ int uv__getiovmax(void) {
 static void uv__finish_close(uv_handle_t* handle) {
   uv_signal_t* sh;
 
-  /** 注意: 当句柄现在处于UV_HANDLE_CLOSING状态时, 从uv__is_active()返回true的意义上说,
+  /**
+   * 注意: 当句柄现在处于UV_HANDLE_CLOSING状态时, 从uv__is_active()返回true的意义上说,
    * 它仍然可能处于活动状态.
    *
    * 一个很好的例子是用户调用uv_shutdown(), 然后紧接着uv_close().
@@ -380,7 +382,8 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     uv__run_closing_handles(loop);
 
     if (mode == UV_RUN_ONCE) {
-      /** 这个地方是对UV_RUN_ONCE追加的保证uv__io_poll阻塞之后定时器到期所进行的回调.
+      /**
+       * 这个地方是对UV_RUN_ONCE追加的保证uv__io_poll阻塞之后定时器到期所进行的回调.
        * 而UV_RUN_NOWAIT则是单纯的为了进行一次i/o轮询, 目的性强不保证进度,
        * 因此在检查中省略了它.
        **/

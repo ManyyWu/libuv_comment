@@ -37,10 +37,10 @@ static unsigned int slow_io_work_running;
 static unsigned int nthreads;
 static uv_thread_t* threads;
 static uv_thread_t default_threads[4];
-static QUEUE exit_message;
-static QUEUE wq;
-static QUEUE run_slow_work_message;
-static QUEUE slow_io_pending_wq;
+static QUEUE exit_message;          /** 标记 **/
+static QUEUE wq;                    /** 待执行队列 **/
+static QUEUE run_slow_work_message; /** 标记 **/
+static QUEUE slow_io_pending_wq;    /** 慢i/o延迟队列 **/
 
 static unsigned int slow_work_thread_threshold(void) {
   return (nthreads + 1) / 2;
@@ -62,23 +62,32 @@ static void worker(void* arg) {
   uv_sem_post((uv_sem_t*) arg);
   arg = NULL;
 
+  /**
+  * 因为只有一个线程能抢占锁, 所以多个线程也只能一个接一个的进入循环.
+  * 整个线程池中线程创建过程中不会出现其他线程在其他位置抢占并锁定 mutex 的情形出现,
+  * 只有该位置会抢占加锁, 而后很快释放锁, 所以线程池中的线程之后短暂的阻塞在这里.
+  **/
   uv_mutex_lock(&mutex);
   for (;;) {
-    /* `mutex` should always be locked at this point. */
-
-    /* Keep waiting while either no work is present or only slow I/O
-       and we're at the threshold for that. */
+    /**
+     * 队列为空则等待.
+     * 不满足少于(nthreads+1)/2个线程处理慢i/o的条件则等待.
+     **/
     while (QUEUE_EMPTY(&wq) ||
+           /** 队列只有一个节点, 且为慢i/o, 且正处理慢i/o的线程数>=阈值 **/
            (QUEUE_HEAD(&wq) == &run_slow_work_message &&
             QUEUE_NEXT(&run_slow_work_message) == &wq &&
             slow_io_work_running >= slow_work_thread_threshold())) {
+      /** 挂起 **/
       idle_threads += 1;
       uv_cond_wait(&cond, &mutex);
       idle_threads -= 1;
     }
 
     q = QUEUE_HEAD(&wq);
+    /** wq队首为exit_message则结束线程 **/
     if (q == &exit_message) {
+      /** 唤醒其他线程 **/
       uv_cond_signal(&cond);
       uv_mutex_unlock(&mutex);
       break;
@@ -88,16 +97,17 @@ static void worker(void* arg) {
     QUEUE_INIT(q);  /* Signal uv_cancel() that the work req is executing. */
 
     is_slow_work = 0;
+    /** 队首为run_slow_work_message则处理slow_io_pending_wq队首的慢i/o **/
     if (q == &run_slow_work_message) {
-      /* If we're at the slow I/O threshold, re-schedule until after all
-         other work in the queue is done. */
+      /**
+      * 不满足少于(nthreads+1)/2个线程处理慢i/o的条件则放回队尾, 延迟处理, 防止过多线程同时处理慢i/o.
+      **/
       if (slow_io_work_running >= slow_work_thread_threshold()) {
         QUEUE_INSERT_TAIL(&wq, q);
         continue;
       }
 
-      /* If we encountered a request to run slow I/O work but there is none
-         to run, that means it's cancelled => Start over. */
+      /** slow_io_pending_wq为空, 则继续下一个节点 **/
       if (QUEUE_EMPTY(&slow_io_pending_wq))
         continue;
 
@@ -118,12 +128,12 @@ static void worker(void* arg) {
 
     uv_mutex_unlock(&mutex);
 
+    /** 处理任务 **/
     w = QUEUE_DATA(q, struct uv__work, wq);
     w->work(w);
 
     uv_mutex_lock(&w->loop->wq_mutex);
-    w->work = NULL;  /* Signal uv_cancel() that the work req is done
-                        executing. */
+    w->work = NULL;  /* 回调为空表示已执行完 */
     QUEUE_INSERT_TAIL(&w->loop->wq, &w->wq);
     uv_async_send(&w->loop->wq_async);
     uv_mutex_unlock(&w->loop->wq_mutex);
@@ -142,18 +152,18 @@ static void worker(void* arg) {
 static void post(QUEUE* q, enum uv__work_kind kind) {
   uv_mutex_lock(&mutex);
   if (kind == UV__WORK_SLOW_IO) {
-    /* Insert into a separate queue. */
+    /** 插入慢i/o队列 **/
     QUEUE_INSERT_TAIL(&slow_io_pending_wq, q);
     if (!QUEUE_EMPTY(&run_slow_work_message)) {
-      /* Running slow I/O tasks is already scheduled => Nothing to do here.
-         The worker that runs said other task will schedule this one as well. */
       uv_mutex_unlock(&mutex);
       return;
     }
+    /** 读到这个节点的线程处理这个慢i/o **/
     q = &run_slow_work_message;
   }
 
   QUEUE_INSERT_TAIL(&wq, q);
+  /** 提交了任务, 唤醒woker **/
   if (idle_threads > 0)
     uv_cond_signal(&cond);
   uv_mutex_unlock(&mutex);
@@ -167,12 +177,15 @@ void uv__threadpool_cleanup(void) {
   if (nthreads == 0)
     return;
 
+  /** exit_message后投递的任务不会执行 **/
   post(&exit_message, UV__WORK_CPU);
 
+  /** 等待线程池全部结束 **/
   for (i = 0; i < nthreads; i++)
     if (uv_thread_join(threads + i))
       abort();
 
+  /** 释放内存 **/
   if (threads != default_threads)
     uv__free(threads);
 
@@ -190,6 +203,7 @@ static void init_threads(void) {
   const char* val;
   uv_sem_t sem;
 
+  /** 获取线程池大小 **/
   nthreads = ARRAY_SIZE(default_threads);
   val = getenv("UV_THREADPOOL_SIZE");
   if (val != NULL)
@@ -199,6 +213,7 @@ static void init_threads(void) {
   if (nthreads > MAX_THREADPOOL_SIZE)
     nthreads = MAX_THREADPOOL_SIZE;
 
+  /** 分配内存 **/
   threads = default_threads;
   if (nthreads > ARRAY_SIZE(default_threads)) {
     threads = uv__malloc(nthreads * sizeof(threads[0]));
@@ -218,16 +233,14 @@ static void init_threads(void) {
   QUEUE_INIT(&slow_io_pending_wq);
   QUEUE_INIT(&run_slow_work_message);
 
+  /** 创建线程池, 并等待创建完成 **/
   if (uv_sem_init(&sem, 0))
     abort();
-
   for (i = 0; i < nthreads; i++)
     if (uv_thread_create(threads + i, worker, &sem))
       abort();
-
   for (i = 0; i < nthreads; i++)
     uv_sem_wait(&sem);
-
   uv_sem_destroy(&sem);
 }
 
