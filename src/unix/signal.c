@@ -259,14 +259,16 @@ static void uv__signal_unregister_handler(int signum) {
 static int uv__signal_loop_once_init(uv_loop_t* loop) {
   int err;
 
-  /* Return if already initialized. */
+  /** 已初始化 **/
   if (loop->signal_pipefd[0] != -1)
     return 0;
 
+  /** 创建管道 **/
   err = uv__make_pipe(loop->signal_pipefd, UV__F_NONBLOCK);
   if (err)
     return err;
 
+  /** 监听管道读端 **/
   uv__io_init(&loop->signal_io_watcher,
               uv__signal_event,
               loop->signal_pipefd[0]);
