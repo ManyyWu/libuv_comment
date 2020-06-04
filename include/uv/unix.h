@@ -387,10 +387,10 @@ typedef struct {
     struct uv_signal_s* rbe_right;                                            \
     struct uv_signal_s* rbe_parent;                                           \
     int rbe_color;                                                            \
-  } tree_entry;                                                               \
+  } tree_entry;                     /** 红黑树节点 **/                         \
   /* Use two counters here so we don have to fiddle with atomics. */          \
-  unsigned int caught_signals;                                                \
-  unsigned int dispatched_signals;
+  unsigned int caught_signals;      /** 捕获次数 **/                           \
+  unsigned int dispatched_signals;  /** 处理次数 **/
 
 #define UV_FS_EVENT_PRIVATE_FIELDS                                            \
   uv_fs_event_cb cb;                                                          \

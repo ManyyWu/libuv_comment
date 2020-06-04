@@ -1563,8 +1563,8 @@ UV_EXTERN int uv_fs_poll_getpath(uv_fs_poll_t* handle,
 
 struct uv_signal_s {
   UV_HANDLE_FIELDS
-  uv_signal_cb signal_cb;
-  int signum;
+  uv_signal_cb signal_cb;  /** 信号处理函数 **/
+  int signum;              /** 信号值 **/
   UV_SIGNAL_PRIVATE_FIELDS
 };
 

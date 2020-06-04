@@ -371,12 +371,14 @@ static int uv__signal_start(uv_signal_t* handle,
    * Additionally, this avoids pending signals getting lost in the small
    * time frame that handle->signum == 0.
    */
+  /** 更新signal_cb **/
   if (signum == handle->signum) {
     handle->signal_cb = signal_cb;
     return 0;
   }
 
   /* If the signal handler was already active, stop it first. */
+  /** 已激活先停止 **/
   if (handle->signum != 0) {
     uv__signal_stop(handle);
   }
