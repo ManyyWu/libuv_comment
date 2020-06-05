@@ -70,6 +70,7 @@ static void uv__signal_global_init(void) {
      * it the handler functions will be called multiple times. Thus
      * we only want to do it once.
      */
+    /** 重新初始化, 保证子进程数据独立 **/
     if (pthread_atfork(NULL, NULL, &uv__signal_global_reinit))
       abort();
 
@@ -140,9 +141,11 @@ static int uv__signal_unlock(void) {
 static void uv__signal_block_and_lock(sigset_t* saved_sigmask) {
   sigset_t new_mask;
 
+  /** 将所有信号加入信号集 **/
   if (sigfillset(&new_mask))
     abort();
 
+  /** 屏蔽所有信号 **/
   if (pthread_sigmask(SIG_SETMASK, &new_mask, saved_sigmask))
     abort();
 
@@ -159,7 +162,7 @@ static void uv__signal_unlock_and_unblock(sigset_t* saved_sigmask) {
     abort();
 }
 
-
+/** 查找注册了该信号的第一个handle **/
 static uv_signal_t* uv__signal_first_handle(int signum) {
   /* This function must be called with the signal lock held. */
   uv_signal_t lookup;
@@ -177,7 +180,7 @@ static uv_signal_t* uv__signal_first_handle(int signum) {
   return NULL;
 }
 
-
+/** 信号捕获函数 **/
 static void uv__signal_handler(int signum) {
   uv__signal_msg_t msg;
   uv_signal_t* handle;
@@ -192,23 +195,22 @@ static void uv__signal_handler(int signum) {
   }
 
   for (handle = uv__signal_first_handle(signum);
-       handle != NULL && handle->signum == signum;
+       handle != NULL && handle->signum == signum; /** 有第一个才会找第二个 **/
        handle = RB_NEXT(uv__signal_tree_s, &uv__signal_tree, handle)) {
     int r;
 
     msg.signum = signum;
     msg.handle = handle;
 
-    /* write() should be atomic for small data chunks, so the entire message
-     * should be written at once. In theory the pipe could become full, in
-     * which case the user is out of luck.
-     */
+    /** 对于较小的数据块, write()应该是原子的, 因此应立即写入整个消息.
+    * 从理论上讲, 管道可能会变满, 在这种情况下, 用户将失去消息。
+    **/
     do {
       r = write(handle->loop->signal_pipefd[1], &msg, sizeof msg);
     } while (r == -1 && errno == EINTR);
 
     assert(r == sizeof msg ||
-           (r == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)));
+    (r == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)));
 
     if (r != -1)
       handle->caught_signals++;
@@ -383,15 +385,19 @@ static int uv__signal_start(uv_signal_t* handle,
     uv__signal_stop(handle);
   }
 
+  /** 暂时屏蔽所有信号 **/
   uv__signal_block_and_lock(&saved_sigmask);
 
   /* If at this point there are no active signal watchers for this signum (in
    * any of the loops), it's time to try and register a handler for it here.
    * Also in case there's only one-shot handlers and a regular handler comes in.
    */
+  /** 查找注册了该信号的第一个handle **/
   first_handle = uv__signal_first_handle(signum);
+  /** 之前没注册或规则变更严格 **/
   if (first_handle == NULL ||
       (!oneshot && (first_handle->flags & UV_SIGNAL_ONE_SHOT))) {
+    /** 注册信号 **/
     err = uv__signal_register_handler(signum, oneshot);
     if (err) {
       /* Registering the signal handler failed. Must be an invalid signal. */
@@ -404,6 +410,7 @@ static int uv__signal_start(uv_signal_t* handle,
   if (oneshot)
     handle->flags |= UV_SIGNAL_ONE_SHOT;
 
+  /** 插入红黑树 **/
   RB_INSERT(uv__signal_tree_s, &uv__signal_tree, handle);
 
   uv__signal_unlock_and_unblock(&saved_sigmask);
