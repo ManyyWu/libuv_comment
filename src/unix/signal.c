@@ -545,6 +545,7 @@ static void uv__signal_stop(uv_signal_t* handle) {
   if (handle->signum == 0)
     return;
 
+  /** 屏蔽所有信号 **/
   uv__signal_block_and_lock(&saved_sigmask);
 
   removed_handle = RB_REMOVE(uv__signal_tree_s, &uv__signal_tree, handle);
@@ -567,6 +568,7 @@ static void uv__signal_stop(uv_signal_t* handle) {
     }
   }
 
+  /** 解除信号屏蔽 **/
   uv__signal_unlock_and_unblock(&saved_sigmask);
 
   handle->signum = 0;
