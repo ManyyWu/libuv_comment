@@ -149,12 +149,14 @@ static void uv__signal_block_and_lock(sigset_t* saved_sigmask) {
   if (pthread_sigmask(SIG_SETMASK, &new_mask, saved_sigmask))
     abort();
 
+  /** 消耗数据, 若有其他线程进来会阻塞 **/
   if (uv__signal_lock())
     abort();
 }
 
 
 static void uv__signal_unlock_and_unblock(sigset_t* saved_sigmask) {
+  /** 生产数据, 其他线程read读到数据才会返回 **/
   if (uv__signal_unlock())
     abort();
 
@@ -413,6 +415,7 @@ static int uv__signal_start(uv_signal_t* handle,
   /** 插入红黑树 **/
   RB_INSERT(uv__signal_tree_s, &uv__signal_tree, handle);
 
+  /** 解除信号屏蔽 **/
   uv__signal_unlock_and_unblock(&saved_sigmask);
 
   handle->signal_cb = signal_cb;
@@ -465,13 +468,16 @@ static void uv__signal_event(uv_loop_t* loop,
       msg = (uv__signal_msg_t*) (buf + i);
       handle = msg->handle;
 
+      /** 回调 **/
       if (msg->signum == handle->signum) {
         assert(!(handle->flags & UV_HANDLE_CLOSING));
         handle->signal_cb(handle, handle->signum);
       }
 
+      /** 处理次数+1 **/
       handle->dispatched_signals++;
 
+      /** ONE_SHOT则停止信号监听 **/
       if (handle->flags & UV_SIGNAL_ONE_SHOT)
         uv__signal_stop(handle);
     }
@@ -481,6 +487,7 @@ static void uv__signal_event(uv_loop_t* loop,
     /* If there are any "partial" messages left, move them to the start of the
      * the buffer, and spin. This should not happen.
      */
+    /** 不满足消息结构的部分存起来, 理论上不会发生 **/
     if (bytes) {
       memmove(buf, buf + end, bytes);
       continue;
