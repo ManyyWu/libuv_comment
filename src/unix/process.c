@@ -187,6 +187,7 @@ static int uv__process_init_stdio(uv_stdio_container_t* container, int fds[2]) {
   case UV_IGNORE:
     return 0;
 
+  /** 使用无名管道 **/
   case UV_CREATE_PIPE:
     assert(container->data.stream != NULL);
     if (container->data.stream->type != UV_NAMED_PIPE)
@@ -194,6 +195,7 @@ static int uv__process_init_stdio(uv_stdio_container_t* container, int fds[2]) {
     else
       return uv__make_socketpair(fds);
 
+  /** 使用已存在的文件描述符或stream **/
   case UV_INHERIT_FD:
   case UV_INHERIT_STREAM:
     if (container->flags & UV_INHERIT_FD)
@@ -301,9 +303,7 @@ static void uv__process_child_init(const uv_process_options_t* options,
       if (fd >= 3)
         continue;
       else {
-        /* redirect stdin, stdout and stderr to /dev/null even if UV_IGNORE is
-         * set
-         */
+        /** 设置UV_IGNORE的stdio重定向到/dev/null **/
         use_fd = open("/dev/null", fd == 0 ? O_RDONLY : O_RDWR);
         close_fd = use_fd;
 
@@ -452,6 +452,7 @@ int uv_spawn(uv_loop_t* loop,
     pipes[i][1] = -1;
   }
 
+  /** 初始化stdio管道 **/
   for (i = 0; i < options->stdio_count; i++) {
     err = uv__process_init_stdio(options->stdio + i, pipes[i]);
     if (err)
@@ -503,6 +504,7 @@ int uv_spawn(uv_loop_t* loop,
 
   /* Release lock in parent process */
   uv_rwlock_wrunlock(&loop->cloexec_lock);
+  /** 关闭写端 **/
   uv__close(signal_pipe[1]);
 
   process->status = 0;
@@ -514,11 +516,13 @@ int uv_spawn(uv_loop_t* loop,
   if (r == 0)
     ; /* okay, EOF */
   else if (r == sizeof(exec_errorno)) {
+    /** 子进程发生错误 **/
     do
       err = waitpid(pid, &status, 0); /* okay, read errorno */
     while (err == -1 && errno == EINTR);
     assert(err == pid);
   } else if (r == -1 && errno == EPIPE) {
+    /** 错误 **/
     do
       err = waitpid(pid, &status, 0); /* okay, got EPIPE */
     while (err == -1 && errno == EINTR);

@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include <unistd.h>
 
+/** 获取进程绝对路径 **/
 int uv_exepath(char* buffer, size_t* size) {
   ssize_t n;
 
