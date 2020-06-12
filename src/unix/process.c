@@ -68,6 +68,7 @@ static void uv__chld(uv_signal_t* handle, int signum) {
     q = QUEUE_NEXT(q);
 
     do
+      /** 子进程未结束则返回0, 结束则返回pid **/
       pid = waitpid(process->pid, &status, WNOHANG);
     while (pid == -1 && errno == EINTR);
 
@@ -106,6 +107,7 @@ static void uv__chld(uv_signal_t* handle, int signum) {
     if (WIFSIGNALED(process->status))
       term_signal = WTERMSIG(process->status);
 
+    /** 回调 **/
     process->exit_cb(process, exit_status, term_signal);
   }
   assert(QUEUE_EMPTY(&pending));
@@ -490,6 +492,7 @@ int uv_spawn(uv_loop_t* loop,
   if (err)
     goto error;
 
+  /** SIGCHILD触发时回调 **/
   uv_signal_start(&loop->child_watcher, uv__chld, SIGCHLD);
 
   /** 防止在工作线程中打开新的fd, 防止子进程继承刚创建的未设置O_CLOEXEC的fd **/
