@@ -338,11 +338,13 @@ static void uv__process_child_init(const uv_process_options_t* options,
       uv__close(use_fd);
   }
 
+  /** chdir **/
   if (options->cwd != NULL && chdir(options->cwd)) {
     uv__write_int(error_fd, UV__ERR(errno));
     _exit(127);
   }
 
+  /** set gids **/
   if (options->flags & (UV_PROCESS_SETUID | UV_PROCESS_SETGID)) {
     /* When dropping privileges from root, the `setgroups` call will
      * remove any extraneous groups. If we don't call this, then
@@ -354,16 +356,19 @@ static void uv__process_child_init(const uv_process_options_t* options,
     SAVE_ERRNO(setgroups(0, NULL));
   }
 
+  /** set gid **/
   if ((options->flags & UV_PROCESS_SETGID) && setgid(options->gid)) {
     uv__write_int(error_fd, UV__ERR(errno));
     _exit(127);
   }
 
+  /** set uid **/
   if ((options->flags & UV_PROCESS_SETUID) && setuid(options->uid)) {
     uv__write_int(error_fd, UV__ERR(errno));
     _exit(127);
   }
 
+  /** set env **/
   if (options->env != NULL) {
     environ = options->env;
   }
@@ -389,16 +394,16 @@ static void uv__process_child_init(const uv_process_options_t* options,
     _exit(127);
   }
 
-  /* Reset signal mask. */
+  /** 重置信号 **/
   sigemptyset(&set);
   err = pthread_sigmask(SIG_SETMASK, &set, NULL);
-
   if (err != 0) {
     uv__write_int(error_fd, UV__ERR(err));
     _exit(127);
   }
 
   execvp(options->file, options->args);
+  /** 失败才会返回 **/
   uv__write_int(error_fd, UV__ERR(errno));
   _exit(127);
 }
