@@ -187,7 +187,7 @@ static int uv__process_init_stdio(uv_stdio_container_t* container, int fds[2]) {
   case UV_IGNORE:
     return 0;
 
-  /** 使用无名管道 **/
+  /** 使用unix套接字 **/
   case UV_CREATE_PIPE:
     assert(container->data.stream != NULL);
     if (container->data.stream->type != UV_NAMED_PIPE)
@@ -224,6 +224,7 @@ static int uv__process_open_stream(uv_stdio_container_t* container,
   if (!(container->flags & UV_CREATE_PIPE) || pipefds[0] < 0)
     return 0;
 
+  /** 关闭写端 **/
   err = uv__close(pipefds[1]);
   if (err != 0)
     abort();
@@ -237,6 +238,7 @@ static int uv__process_open_stream(uv_stdio_container_t* container,
   if (container->flags & UV_READABLE_PIPE)
     flags |= UV_HANDLE_WRITABLE;
 
+  /** 监听读端 **/
   return uv__stream_open(container->data.stream, pipefds[0], flags);
 }
 
@@ -306,7 +308,6 @@ static void uv__process_child_init(const uv_process_options_t* options,
         /** 设置UV_IGNORE的stdio重定向到/dev/null **/
         use_fd = open("/dev/null", fd == 0 ? O_RDONLY : O_RDWR);
         close_fd = use_fd;
-
         if (use_fd < 0) {
           uv__write_int(error_fd, UV__ERR(errno));
           _exit(127);
@@ -314,19 +315,19 @@ static void uv__process_child_init(const uv_process_options_t* options,
       }
     }
 
+    /** set cloexec **/
     if (fd == use_fd)
       uv__cloexec_fcntl(use_fd, 0);
     else
       fd = dup2(use_fd, fd);
-
     if (fd == -1) {
       uv__write_int(error_fd, UV__ERR(errno));
       _exit(127);
     }
 
+    /** set nonblocking **/
     if (fd <= 2)
       uv__nonblock_fcntl(fd, 0);
-
     if (close_fd >= stdio_count)
       uv__close(close_fd);
   }
@@ -484,13 +485,14 @@ int uv_spawn(uv_loop_t* loop,
    * marked close-on-exec. Then, after the call to `fork()`,
    * the parent polls the read end until it EOFs or errors with EPIPE.
    */
+  /** 用来返回子进程错误 **/
   err = uv__make_pipe(signal_pipe, 0);
   if (err)
     goto error;
 
   uv_signal_start(&loop->child_watcher, uv__chld, SIGCHLD);
 
-  /* Acquire write lock to prevent opening new fds in worker threads */
+  /** 防止在工作线程中打开新的fd, 防止子进程继承刚创建的未设置O_CLOEXEC的fd **/
   uv_rwlock_wrlock(&loop->cloexec_lock);
   pid = fork();
 
@@ -502,6 +504,7 @@ int uv_spawn(uv_loop_t* loop,
     goto error;
   }
 
+  /** 子进程初始化 **/
   if (pid == 0) {
     uv__process_child_init(options, stdio_count, pipes, signal_pipe[1]);
     abort();
@@ -509,11 +512,12 @@ int uv_spawn(uv_loop_t* loop,
 
   /* Release lock in parent process */
   uv_rwlock_wrunlock(&loop->cloexec_lock);
-  /** 关闭写端 **/
+  /** 父进程关闭写端 **/
   uv__close(signal_pipe[1]);
 
   process->status = 0;
   exec_errorno = 0;
+  /** 父进程循环读 **/
   do
     r = read(signal_pipe[0], &exec_errorno, sizeof(exec_errorno));
   while (r == -1 && errno == EINTR);
@@ -535,20 +539,23 @@ int uv_spawn(uv_loop_t* loop,
   } else
     abort();
 
+  /** 关闭读端 **/
   uv__close_nocheckstdio(signal_pipe[0]);
 
+  /** 监听pipe读端 **/
   for (i = 0; i < options->stdio_count; i++) {
     err = uv__process_open_stream(options->stdio + i, pipes[i]);
     if (err == 0)
       continue;
 
+    /** 关闭所有pipe **/
     while (i--)
       uv__process_close_stream(options->stdio + i);
 
     goto error;
   }
 
-  /* Only activate this handle if exec() happened successfully */
+  /** 仅当exec成功时才激活handle **/
   if (exec_errorno == 0) {
     QUEUE_INSERT_TAIL(&loop->process_handles, &process->queue);
     uv__handle_start(process);
