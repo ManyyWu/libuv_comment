@@ -964,14 +964,10 @@ typedef struct uv_process_options_s {
    * `enum uv_process_flags` below.
    */
   unsigned int flags;
-  /*
-   * The `stdio` field points to an array of uv_stdio_container_t structs that
-   * describe the file descriptors that will be made available to the child
-   * process. The convention is that stdio[0] points to stdin, fd 1 is used for
-   * stdout, and fd 2 is stderr.
-   *
-   * Note that on windows file descriptors greater than 2 are available to the
-   * child process only if the child processes uses the MSVCRT runtime.
+  /**
+   * "stdio"字段指向uv_stdio_container_t结构的数组, 这些结构描述将使子进程可用的文件描述符.
+   * 约定是stdio[0]指向stdin, fd 1用于stdout，fd 2是stderr。.
+   * 请注意, 在Windows上, 仅当子进程使用MSVCRT运行时时, 子进程才能使用大于2的文件描述符.
    */
   int stdio_count;
   uv_stdio_container_t* stdio;
