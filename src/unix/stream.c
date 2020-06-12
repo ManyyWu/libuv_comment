@@ -849,6 +849,7 @@ start:
   if (iovcnt > iovmax)
     iovcnt = iovmax;
 
+  /** 发送fd到子进程 **/
   if (req->send_handle) {
     int fd_to_send;
     struct msghdr msg;
