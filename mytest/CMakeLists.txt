@@ -1,6 +1,6 @@
 project(mytest)
 
-add_executable(mytest mytest.c)
+add_executable(mytest server.c)
 target_link_libraries(mytest uv)
 
 add_executable(mytest_worker worker.c)

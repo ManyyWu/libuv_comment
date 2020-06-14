@@ -26,7 +26,7 @@ void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
 
 void echo_write(uv_write_t *req, int status) {
   if (status) {
-    fprintf(stderr, "Write error %s\n", uv_err_name(status));
+    fprintf(stderr, "[%d] Write error %s\n", getpid(), uv_err_name(status));
   }
   free_write_req(req);
 }
@@ -41,9 +41,12 @@ void echo_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {
 
   if (nread < 0) {
     if (nread != UV_EOF)
-      fprintf(stderr, "Read error %s\n", uv_err_name(nread));
+      fprintf(stderr, "[%d] Read error %s\n", getpid(), uv_err_name(nread));
+    else
+      fprintf(stderr, "[%d] Client %s closed\n", getpid(), uv_err_name(nread));
     uv_close((uv_handle_t*) client, NULL);
   }
+
 
   free(buf->base);
 }
@@ -51,14 +54,14 @@ void echo_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {
 void on_new_connection(uv_stream_t *q, ssize_t nread, const uv_buf_t *buf) {
   if (nread < 0) {
     if (nread != UV_EOF)
-      fprintf(stderr, "Read error %s\n", uv_err_name(nread));
+      fprintf(stderr, "[%d] Read error %s\n", getpid(), uv_err_name(nread));
     uv_close((uv_handle_t*) q, NULL);
     return;
   }
 
   uv_pipe_t *pipe = (uv_pipe_t*) q;
   if (!uv_pipe_pending_count(pipe)) {
-    fprintf(stderr, "No pending count\n");
+    fprintf(stderr, "[%d] No pending count\n", getpid());
     return;
   }
 
@@ -70,7 +73,7 @@ void on_new_connection(uv_stream_t *q, ssize_t nread, const uv_buf_t *buf) {
   if (uv_accept(q, (uv_stream_t*) client) == 0) {
     uv_os_fd_t fd;
     uv_fileno((const uv_handle_t*) client, &fd);
-    fprintf(stderr, "Worker %d: Accepted fd %d\n", getpid(), fd);
+    fprintf(stderr, "[%d] Accepted fd %d\n", getpid(), fd);
     uv_read_start((uv_stream_t*) client, alloc_buffer, echo_read);
   }
   else {
@@ -79,6 +82,7 @@ void on_new_connection(uv_stream_t *q, ssize_t nread, const uv_buf_t *buf) {
 }
 
 int main() {
+  fprintf(stderr, "worker %d is running\n", getpid());
   loop = uv_default_loop();
 
   uv_pipe_init(loop, &queue, 1 /* ipc */);
