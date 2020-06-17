@@ -90,17 +90,16 @@ static int uv_tcp_set_socket(uv_loop_t* loop,
   if (handle->socket != INVALID_SOCKET)
     return UV_EBUSY;
 
-  /* Set the socket to nonblocking mode */
+  /** nonblocking **/
   if (ioctlsocket(socket, FIONBIO, &yes) == SOCKET_ERROR) {
     return WSAGetLastError();
   }
 
-  /* Make the socket non-inheritable */
+  /** cloexec **/
   if (!SetHandleInformation((HANDLE) socket, HANDLE_FLAG_INHERIT, 0))
     return GetLastError();
 
-  /* Associate it with the I/O completion port. Use uv_handle_t pointer as
-   * completion key. */
+  /** 与IOCP关联 **/
   if (CreateIoCompletionPort((HANDLE)socket,
                              loop->iocp,
                              (ULONG_PTR)socket,
@@ -118,6 +117,12 @@ static int uv_tcp_set_socket(uv_loop_t* loop,
     non_ifs_lsp = uv_tcp_non_ifs_lsp_ipv4;
   }
 
+  /**
+  * https://support.microsoft.com/en-hk/help/2568167/setfilecompletionnotificationmodes-api-causes-an-i-o-completion-port-n
+  * https://tboox.org/cn/2018/08/16/coroutine-iocp-some-issues/
+  * 如果安装了non-IFS LSP, SetFileCompletionNotificationModes API会导致I/O完成端口无法正常工作.
+  * FILE_SKIP_COMPLETION_PORT_ON_SUCCESS: 如果WSAXxxx如果立即成功返回, 那么不会再队列化I/O Event了.
+  **/
   if (!(handle->flags & UV_HANDLE_EMULATE_IOCP) && !non_ifs_lsp) {
     UCHAR sfcnm_flags =
         FILE_SKIP_SET_EVENT_ON_HANDLE | FILE_SKIP_COMPLETION_PORT_ON_SUCCESS;
@@ -126,13 +131,14 @@ static int uv_tcp_set_socket(uv_loop_t* loop,
     handle->flags |= UV_HANDLE_SYNC_BYPASS_IOCP;
   }
 
+  /** 禁用Nagle算法 **/
   if (handle->flags & UV_HANDLE_TCP_NODELAY) {
     err = uv__tcp_nodelay(handle, socket, 1);
     if (err)
       return err;
   }
 
-  /* TODO: Use stored delay. */
+  /** keepalive **/
   if (handle->flags & UV_HANDLE_TCP_KEEPALIVE) {
     err = uv__tcp_keepalive(handle, socket, 1, 60);
     if (err)
@@ -180,6 +186,7 @@ int uv_tcp_init_ex(uv_loop_t* loop, uv_tcp_t* handle, unsigned int flags) {
     SOCKET sock;
     DWORD err;
 
+    /** 创建套接字 **/
     sock = socket(domain, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET) {
       err = WSAGetLastError();
@@ -187,6 +194,7 @@ int uv_tcp_init_ex(uv_loop_t* loop, uv_tcp_t* handle, unsigned int flags) {
       return uv_translate_sys_error(err);
     }
 
+    /** nonblocking, cloexec, 关联iocp， 并设置选项 **/
     err = uv_tcp_set_socket(handle->loop, handle, sock, domain, 0);
     if (err) {
       closesocket(sock);
@@ -580,11 +588,13 @@ int uv_tcp_listen(uv_tcp_t* handle, int backlog, uv_connection_cb cb) {
     return WSAEISCONN;
   }
 
+  /** 有未处理的错误 **/
   if (handle->delayed_error) {
     return handle->delayed_error;
   }
 
   if (!(handle->flags & UV_HANDLE_BOUND)) {
+    /** 绑定ADDR_ANY:0, 由内核随机一个端口 **/
     err = uv_tcp_try_bind(handle,
                           (const struct sockaddr*) &uv_addr_ip4_any_,
                           sizeof(uv_addr_ip4_any_),
