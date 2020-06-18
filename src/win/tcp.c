@@ -424,7 +424,7 @@ static void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
     return;
   }
 
-  /* Make the socket non-inheritable */
+  /** 子进程不可继承 **/
   if (!SetHandleInformation((HANDLE) accept_socket, HANDLE_FLAG_INHERIT, 0)) {
     SET_REQ_ERROR(req, GetLastError());
     uv_insert_pending_req(loop, (uv_req_t*)req);
@@ -440,6 +440,7 @@ static void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
     req->u.io.overlapped.hEvent = (HANDLE) ((ULONG_PTR) req->event_handle | 1);
   }
 
+  /** 投递 **/
   success = handle->tcp.serv.func_acceptex(handle->socket,
                                           accept_socket,
                                           (void*)req->accept_buffer,
@@ -448,13 +449,14 @@ static void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
                                           sizeof(struct sockaddr_storage),
                                           &bytes,
                                           &req->u.io.overlapped);
+  /** BOOL返回值 **/
 
   if (UV_SUCCEEDED_WITHOUT_IOCP(success)) {
     /* Process the req without IOCP. */
     req->accept_socket = accept_socket;
     handle->reqs_pending++;
     uv_insert_pending_req(loop, (uv_req_t*)req);
-  } else if (UV_SUCCEEDED_WITH_IOCP(success)) {
+  } else if (UV_SUCCEEDED_WITH_IOCP(success)) { /** TURE || success == ERROR_IO_PENDING **/
     /* The req will be processed with IOCP. */
     req->accept_socket = accept_socket;
     handle->reqs_pending++;
@@ -466,7 +468,7 @@ static void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
       SET_REQ_ERROR(req, GetLastError());
       uv_insert_pending_req(loop, (uv_req_t*)req);
     }
-  } else {
+  } else { /** error **/
     /* Make this req pending reporting an error. */
     SET_REQ_ERROR(req, WSAGetLastError());
     uv_insert_pending_req(loop, (uv_req_t*)req);
@@ -605,12 +607,14 @@ int uv_tcp_listen(uv_tcp_t* handle, int backlog, uv_connection_cb cb) {
       return handle->delayed_error;
   }
 
+  /** 获取acceptex指针 **/
   if (!handle->tcp.serv.func_acceptex) {
     if (!uv_get_acceptex_function(handle->socket, &handle->tcp.serv.func_acceptex)) {
       return WSAEAFNOSUPPORT;
     }
   }
 
+  /** listen **/
   if (!(handle->flags & UV_HANDLE_SHARED_TCP_SOCKET) &&
       listen(handle->socket, backlog) == SOCKET_ERROR) {
     return WSAGetLastError();
@@ -618,18 +622,21 @@ int uv_tcp_listen(uv_tcp_t* handle, int backlog, uv_connection_cb cb) {
 
   handle->flags |= UV_HANDLE_LISTENING;
   handle->stream.serv.connection_cb = cb;
+  /** 增加计数 **/
   INCREASE_ACTIVE_COUNT(loop, handle);
 
   simultaneous_accepts = handle->flags & UV_HANDLE_TCP_SINGLE_ACCEPT ? 1
     : uv_simultaneous_server_accepts;
 
   if (handle->tcp.serv.accept_reqs == NULL) {
+    /** 为accept_reqs分配空间, uv_tcp_endgame中释放 **/
     handle->tcp.serv.accept_reqs =
       uv__malloc(uv_simultaneous_server_accepts * sizeof(uv_tcp_accept_t));
     if (!handle->tcp.serv.accept_reqs) {
       uv_fatal_error(ERROR_OUTOFMEMORY, "uv__malloc");
     }
 
+    /** 初始化accept_req **/
     for (i = 0; i < simultaneous_accepts; i++) {
       req = &handle->tcp.serv.accept_reqs[i];
       UV_REQ_INIT(req, UV_ACCEPT);
@@ -637,6 +644,7 @@ int uv_tcp_listen(uv_tcp_t* handle, int backlog, uv_connection_cb cb) {
       req->data = handle;
 
       req->wait_handle = INVALID_HANDLE_VALUE;
+      /** 模拟iocp **/
       if (handle->flags & UV_HANDLE_EMULATE_IOCP) {
         req->event_handle = CreateEvent(NULL, 0, 0, NULL);
         if (req->event_handle == NULL) {
@@ -646,12 +654,14 @@ int uv_tcp_listen(uv_tcp_t* handle, int backlog, uv_connection_cb cb) {
         req->event_handle = NULL;
       }
 
+      /** 投递accept **/
       uv_tcp_queue_accept(handle, req);
     }
 
     /* Initialize other unused requests too, because uv_tcp_endgame doesn't
      * know how many requests were initialized, so it will try to clean up
      * {uv_simultaneous_server_accepts} requests. */
+    /** 初始化未使用的部分 **/
     for (i = simultaneous_accepts; i < uv_simultaneous_server_accepts; i++) {
       req = &handle->tcp.serv.accept_reqs[i];
       UV_REQ_INIT(req, UV_ACCEPT);

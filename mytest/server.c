@@ -42,8 +42,7 @@ void on_new_connection(uv_stream_t *server, int status) {
     struct child_worker *worker = &workers[round_robin_counter];
     uv_write2(write_req, (uv_stream_t*) &worker->pipe, &dummy_buf, 1, (uv_stream_t*) client, NULL);
     round_robin_counter = (round_robin_counter + 1) % child_worker_count;
-  }
-  else {
+  } else {
     uv_close((uv_handle_t*) client, NULL);
   }
 }
