@@ -194,7 +194,7 @@ int uv_tcp_init_ex(uv_loop_t* loop, uv_tcp_t* handle, unsigned int flags) {
       return uv_translate_sys_error(err);
     }
 
-    /** nonblocking, cloexec, 关联iocp， 并设置选项 **/
+    /** 将socket关联到handle, nonblocking, cloexec, 关联iocp， 并设置套接字选项 **/
     err = uv_tcp_set_socket(handle->loop, handle, sock, domain, 0);
     if (err) {
       closesocket(sock);
@@ -318,6 +318,7 @@ static int uv_tcp_try_bind(uv_tcp_t* handle,
       return WSAGetLastError();
     }
 
+    /** 将socket关联到handle, nonblocking, cloexec, 关联iocp， 并设置套接字选项 **/
     err = uv_tcp_set_socket(handle->loop, handle, sock, addr->sa_family, 0);
     if (err) {
       closesocket(sock);
@@ -466,6 +467,7 @@ static void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
           req->event_handle, post_completion, (void*) req,
           INFINITE, WT_EXECUTEINWAITTHREAD)) {
       SET_REQ_ERROR(req, GetLastError());
+      /** 插入pending队列 **/
       uv_insert_pending_req(loop, (uv_req_t*)req);
     }
   } else { /** error **/
@@ -636,8 +638,8 @@ int uv_tcp_listen(uv_tcp_t* handle, int backlog, uv_connection_cb cb) {
       uv_fatal_error(ERROR_OUTOFMEMORY, "uv__malloc");
     }
 
-    /** 初始化accept_req **/
     for (i = 0; i < simultaneous_accepts; i++) {
+      /** 初始化accept_req **/
       req = &handle->tcp.serv.accept_reqs[i];
       UV_REQ_INIT(req, UV_ACCEPT);
       req->accept_socket = INVALID_SOCKET;
@@ -681,6 +683,7 @@ int uv_tcp_accept(uv_tcp_t* server, uv_tcp_t* client) {
   int err = 0;
   int family;
 
+  /** 获取pending_accepts队首 **/
   uv_tcp_accept_t* req = server->tcp.serv.pending_accepts;
 
   if (!req) {
@@ -688,6 +691,7 @@ int uv_tcp_accept(uv_tcp_t* server, uv_tcp_t* client) {
     return WSAEWOULDBLOCK;
   }
 
+  /** 未连接 **/
   if (req->accept_socket == INVALID_SOCKET) {
     return WSAENOTCONN;
   }
@@ -698,6 +702,7 @@ int uv_tcp_accept(uv_tcp_t* server, uv_tcp_t* client) {
     family = AF_INET;
   }
 
+  /** 将socket关联到handle, nonblocking, cloexec, 关联iocp， 并设置套接字选项 **/
   err = uv_tcp_set_socket(client->loop,
                           client,
                           req->accept_socket,
@@ -711,21 +716,23 @@ int uv_tcp_accept(uv_tcp_t* server, uv_tcp_t* client) {
     client->flags |= UV_HANDLE_BOUND | UV_HANDLE_READABLE | UV_HANDLE_WRITABLE;
   }
 
-  /* Prepare the req to pick up a new connection */
+  /** 将节点从pending_accepts中移除, 初始化重新投递 **/
   server->tcp.serv.pending_accepts = req->next_pending;
   req->next_pending = NULL;
   req->accept_socket = INVALID_SOCKET;
 
+  /** server没关闭则继续投递 **/
   if (!(server->flags & UV_HANDLE_CLOSING)) {
-    /* Check if we're in a middle of changing the number of pending accepts. */
     if (!(server->flags & UV_HANDLE_TCP_ACCEPT_STATE_CHANGING)) {
       uv_tcp_queue_accept(server, req);
     } else {
+      /** 正在改变accept方式, 从连续accept切换到单次accept **/
       /* We better be switching to a single pending accept. */
       assert(server->flags & UV_HANDLE_TCP_SINGLE_ACCEPT);
 
       server->tcp.serv.processed_accepts++;
 
+      /** 待所有pending_accepts被uv_accept, 切换到单次accept **/
       if (server->tcp.serv.processed_accepts >= uv_simultaneous_server_accepts) {
         server->tcp.serv.processed_accepts = 0;
         /*
@@ -1136,6 +1143,7 @@ void uv_process_tcp_accept_req(uv_loop_t* loop, uv_tcp_t* handle,
   /* If handle->accepted_socket is not a valid socket, then uv_queue_accept
    * must have failed. This is a serious error. We stop accepting connections
    * and report this error to the connection callback. */
+  /** 在之前的操作中发生了错误 **/
   if (req->accept_socket == INVALID_SOCKET) {
     if (handle->flags & UV_HANDLE_LISTENING) {
       handle->flags &= ~UV_HANDLE_LISTENING;
@@ -1147,22 +1155,26 @@ void uv_process_tcp_accept_req(uv_loop_t* loop, uv_tcp_t* handle,
       }
     }
   } else if (REQ_SUCCESS(req) &&
+      /** 继承监听套接字的属性 **/
       setsockopt(req->accept_socket,
                   SOL_SOCKET,
                   SO_UPDATE_ACCEPT_CONTEXT,
                   (char*)&handle->socket,
                   sizeof(handle->socket)) == 0) {
+    /** 将req插入pending链表, 待uv_accept获取 **/
     req->next_pending = handle->tcp.serv.pending_accepts;
     handle->tcp.serv.pending_accepts = req;
 
     /* Accept and SO_UPDATE_ACCEPT_CONTEXT were successful. */
+    /** 回调 **/
     if (handle->stream.serv.connection_cb) {
       handle->stream.serv.connection_cb((uv_stream_t*)handle, 0);
     }
   } else {
-    /* Error related to accepted socket is ignored because the server socket
-     * may still be healthy. If the server socket is broken uv_queue_accept
-     * will detect it. */
+    /**
+     * 与服务器接受的套接字有关的错误将被忽略, 因为服务器套接字可能仍然正常.
+     * 如果服务器套接字损坏, uv_queue_accept将对其进行检测.
+     **/
     closesocket(req->accept_socket);
     req->accept_socket = INVALID_SOCKET;
     if (handle->flags & UV_HANDLE_LISTENING) {
@@ -1262,6 +1274,7 @@ int uv__tcp_xfer_import(uv_tcp_t* tcp,
     return WSAGetLastError();
   }
 
+  /** 将socket关联到handle, nonblocking, cloexec, 关联iocp， 并设置套接字选项 **/
   err = uv_tcp_set_socket(
       tcp->loop, tcp, socket, xfer_info->socket_info.iAddressFamily, 1);
   if (err) {
@@ -1333,7 +1346,7 @@ int uv_tcp_simultaneous_accepts(uv_tcp_t* handle, int enable) {
     return 0;
   }
 
-  /* Don't allow switching from single pending accept to many. */
+  /** 不允许从单次accept切换到连续accept **/
   if (enable) {
     return UV_ENOTSUP;
   }
@@ -1480,6 +1493,7 @@ int uv_tcp_open(uv_tcp_t* handle, uv_os_sock_t sock) {
     return uv_translate_sys_error(GetLastError());
   }
 
+  /** 将socket关联到handle, nonblocking, cloexec, 关联iocp， 并设置套接字选项 **/
   err = uv_tcp_set_socket(handle->loop,
                           handle,
                           sock,
