@@ -886,7 +886,7 @@ int uv_tcp_write(uv_loop_t* loop,
   req->handle = (uv_stream_t*) handle;
   req->cb = cb;
 
-  /* Prepare the overlapped structure. */
+  /** 初始化重叠结构 **/
   memset(&(req->u.io.overlapped), 0, sizeof(req->u.io.overlapped));
   if (handle->flags & UV_HANDLE_EMULATE_IOCP) {
     req->event_handle = CreateEvent(NULL, 0, 0, NULL);
@@ -897,6 +897,7 @@ int uv_tcp_write(uv_loop_t* loop,
     req->wait_handle = INVALID_HANDLE_VALUE;
   }
 
+  /** 投递 **/
   result = WSASend(handle->socket,
                    (WSABUF*) bufs,
                    nbufs,
@@ -912,8 +913,9 @@ int uv_tcp_write(uv_loop_t* loop,
     handle->stream.conn.write_reqs_pending++;
     REGISTER_HANDLE_REQ(loop, handle, req);
     uv_insert_pending_req(loop, (uv_req_t*) req);
-  } else if (UV_SUCCEEDED_WITH_IOCP(result == 0)) {
+  } else if (UV_SUCCEEDED_WITH_IOCP(result == 0)) { /** (result == 0) || (GetLastError() == ERROR_IO_PENDING) **/
     /* Request queued by the kernel. */
+    /** 投递完成 **/
     req->u.io.queued_bytes = uv__count_bufs(bufs, nbufs);
     handle->reqs_pending++;
     handle->stream.conn.write_reqs_pending++;
