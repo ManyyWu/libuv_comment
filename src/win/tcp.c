@@ -1154,7 +1154,7 @@ void uv_process_tcp_accept_req(uv_loop_t* loop, uv_tcp_t* handle,
                                       uv_translate_sys_error(err));
       }
     }
-  } else if (REQ_SUCCESS(req) &&
+  } else if (REQ_SUCCESS(req) && /** (req)->u.io.overlapped.Internal **/
       /** 继承监听套接字的属性 **/
       setsockopt(req->accept_socket,
                   SOL_SOCKET,
