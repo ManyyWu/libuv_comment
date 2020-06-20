@@ -531,7 +531,7 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
   result = WSARecv(handle->socket,
                    (WSABUF*)&buf,
                    1,
-                   &bytes,
+                   &bytes, /** 实际读取字节数 **/
                    &flags,
                    &req->u.io.overlapped,
                    NULL);
