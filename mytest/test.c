@@ -45,6 +45,7 @@ void echo_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {
   assert(0 == uv_inet_ntop(addr.sin_family, &addr, name, INET_ADDRSTRLEN));
 
   if (nread > 0) {
+    buf->base[len] = 0;
     fprintf(stderr, "connection %s:%d read: \"%s\"\n", name, len, buf->base);
     write_req_t *req = (write_req_t*) malloc(sizeof(write_req_t));
     req->buf = uv_buf_init(buf->base, nread);

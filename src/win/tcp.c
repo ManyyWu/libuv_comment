@@ -514,6 +514,7 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
     assert(handle->tcp.conn.read_buffer.base != NULL);
     buf = handle->tcp.conn.read_buffer;
   } else {
+    /** 连接数过多时, 投递空buf防止占用过多内存 **/
     handle->flags |= UV_HANDLE_ZERO_READ;
     buf.base = (char*) &uv_zero_;
     buf.len = 0;
@@ -530,7 +531,7 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
   result = WSARecv(handle->socket,
                    (WSABUF*)&buf,
                    1,
-                   &bytes,
+                   &bytes, /** 实际读取字节数 **/
                    &flags,
                    &req->u.io.overlapped,
                    NULL);
@@ -756,13 +757,12 @@ int uv_tcp_read_start(uv_tcp_t* handle, uv_alloc_cb alloc_cb,
     uv_read_cb read_cb) {
   uv_loop_t* loop = handle->loop;
 
-  handle->flags |= UV_HANDLE_READING;
+  handle->flags |= UV_HANDLE_READING; /** flowing **/
   handle->read_cb = read_cb;
   handle->alloc_cb = alloc_cb;
   INCREASE_ACTIVE_COUNT(loop, handle);
 
-  /* If reading was stopped and then started again, there could still be a read
-   * request pending. */
+  /**  **/
   if (!(handle->flags & UV_HANDLE_READ_PENDING)) {
     if (handle->flags & UV_HANDLE_EMULATE_IOCP &&
         handle->read_req.event_handle == NULL) {
@@ -771,6 +771,7 @@ int uv_tcp_read_start(uv_tcp_t* handle, uv_alloc_cb alloc_cb,
         uv_fatal_error(GetLastError(), "CreateEvent");
       }
     }
+    /** 投递请求 **/
     uv_tcp_queue_read(loop, handle);
   }
 
