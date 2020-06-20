@@ -502,7 +502,6 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
    * Preallocate a read buffer if the number of active streams is below
    * the threshold.
   */
-  /** 连接数过多时, 投递空buf防止占用过多内存 **/
   if (loop->active_tcp_streams < uv_active_tcp_streams_threshold) {
     handle->flags &= ~UV_HANDLE_ZERO_READ;
     handle->tcp.conn.read_buffer = uv_buf_init(NULL, 0);
@@ -515,6 +514,7 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
     assert(handle->tcp.conn.read_buffer.base != NULL);
     buf = handle->tcp.conn.read_buffer;
   } else {
+    /** 连接数过多时, 投递空buf防止占用过多内存 **/
     handle->flags |= UV_HANDLE_ZERO_READ;
     buf.base = (char*) &uv_zero_;
     buf.len = 0;
