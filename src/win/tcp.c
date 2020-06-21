@@ -104,6 +104,7 @@ static int uv_tcp_set_socket(uv_loop_t* loop,
                              loop->iocp,
                              (ULONG_PTR)socket,
                              0) == NULL) {
+    /** 如果是用户传入的套接字, 则尝试模拟IOCP **/
     if (imported) {
       handle->flags |= UV_HANDLE_EMULATE_IOCP;
     } else {
@@ -438,6 +439,7 @@ static void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
   memset(&(req->u.io.overlapped), 0, sizeof(req->u.io.overlapped));
   if (handle->flags & UV_HANDLE_EMULATE_IOCP) {
     assert(req->event_handle != NULL);
+    /** 将overlappedh设置为Eventevent_handle, 当完成时会设置event_handle为有信号 **/
     req->u.io.overlapped.hEvent = (HANDLE) ((ULONG_PTR) req->event_handle | 1);
   }
 
@@ -463,6 +465,7 @@ static void uv_tcp_queue_accept(uv_tcp_t* handle, uv_tcp_accept_t* req) {
     handle->reqs_pending++;
     if (handle->flags & UV_HANDLE_EMULATE_IOCP &&
         req->wait_handle == INVALID_HANDLE_VALUE &&
+        /** event_handle有信号时回调post_completion **/
         !RegisterWaitForSingleObject(&req->wait_handle,
           req->event_handle, post_completion, (void*) req,
           INFINITE, WT_EXECUTEINWAITTHREAD)) {
@@ -492,10 +495,12 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
   int result;
   DWORD bytes, flags;
 
+  /** flowing **/
   assert(handle->flags & UV_HANDLE_READING);
+  /** read_req未处理完 **/
   assert(!(handle->flags & UV_HANDLE_READ_PENDING));
 
-  req = &handle->read_req;
+  req = &handle->read_req; /** 每个handle只有一个req **/
   memset(&req->u.io.overlapped, 0, sizeof(req->u.io.overlapped));
 
   /*
@@ -503,6 +508,7 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
    * the threshold.
   */
   if (loop->active_tcp_streams < uv_active_tcp_streams_threshold) {
+    /** 为重叠结构分配buf **/
     handle->flags &= ~UV_HANDLE_ZERO_READ;
     handle->tcp.conn.read_buffer = uv_buf_init(NULL, 0);
     handle->alloc_cb((uv_handle_t*) handle, 65536, &handle->tcp.conn.read_buffer);
@@ -514,13 +520,13 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
     assert(handle->tcp.conn.read_buffer.base != NULL);
     buf = handle->tcp.conn.read_buffer;
   } else {
-    /** 连接数过多时, 投递空buf防止占用过多内存 **/
+    /** 连接数过多时, 投递空buf, 有数据时触发事件, 防止占用过多内存 **/
     handle->flags |= UV_HANDLE_ZERO_READ;
     buf.base = (char*) &uv_zero_;
     buf.len = 0;
   }
 
-  /* Prepare the overlapped structure. */
+  /** 初始化重叠结构 **/
   memset(&(req->u.io.overlapped), 0, sizeof(req->u.io.overlapped));
   if (handle->flags & UV_HANDLE_EMULATE_IOCP) {
     assert(req->event_handle != NULL);
@@ -528,6 +534,7 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
   }
 
   flags = 0;
+  /** 投递 **/
   result = WSARecv(handle->socket,
                    (WSABUF*)&buf,
                    1,
@@ -544,8 +551,8 @@ static void uv_tcp_queue_read(uv_loop_t* loop, uv_tcp_t* handle) {
     uv_insert_pending_req(loop, (uv_req_t*)req);
   } else if (UV_SUCCEEDED_WITH_IOCP(result == 0)) {
     /* The req will be processed with IOCP. */
-    handle->flags |= UV_HANDLE_READ_PENDING;
-    handle->reqs_pending++;
+    handle->flags |= UV_HANDLE_READ_PENDING; /** read_req已投递 **/
+    handle->reqs_pending++; /** handle待处理事件计数 **/
     if (handle->flags & UV_HANDLE_EMULATE_IOCP &&
         req->wait_handle == INVALID_HANDLE_VALUE &&
         !RegisterWaitForSingleObject(&req->wait_handle,
@@ -762,7 +769,7 @@ int uv_tcp_read_start(uv_tcp_t* handle, uv_alloc_cb alloc_cb,
   handle->alloc_cb = alloc_cb;
   INCREASE_ACTIVE_COUNT(loop, handle);
 
-  /**  **/
+  /** started **/
   if (!(handle->flags & UV_HANDLE_READ_PENDING)) {
     if (handle->flags & UV_HANDLE_EMULATE_IOCP &&
         handle->read_req.event_handle == NULL) {
@@ -900,13 +907,19 @@ int uv_tcp_write(uv_loop_t* loop,
 
   /** 投递 **/
   result = WSASend(handle->socket,
-                   (WSABUF*) bufs,
+                   (WSABUF*) bufs, /** bufs会内数据会拷贝一次 **/
                    nbufs,
                    &bytes,
                    0,
                    &req->u.io.overlapped,
                    NULL);
-
+  /**
+   * 情况一: 返回0, 数据已拷贝到缓冲区
+   * 情况二: 返回SOCKET_ERROR且错误码为WSA_IO_PENDING, 缓冲区满, 
+   *        有部分数据没有拷贝, 内核会暂时锁定用户缓冲区, 直到iocp返回消息
+   * 情况三: 返回SOCKET_ERROR且错误码不为WSA_IO_PENDING, 严重错误, 应释放SOCKET所有资源
+   **/
+  
   if (UV_SUCCEEDED_WITHOUT_IOCP(result == 0)) {
     /* Request completed immediately. */
     req->u.io.queued_bytes = 0;
@@ -977,7 +990,7 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
 
   handle->flags &= ~UV_HANDLE_READ_PENDING;
 
-  if (!REQ_SUCCESS(req)) {
+  if (!REQ_SUCCESS(req)) { /** !(req)->u.io.overlapped.Internal **/
     /* An error occurred doing the read. */
     if ((handle->flags & UV_HANDLE_READING) ||
         !(handle->flags & UV_HANDLE_ZERO_READ)) {
@@ -1002,16 +1015,16 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
     if (!(handle->flags & UV_HANDLE_ZERO_READ)) {
       /* The read was done with a non-zero buffer length. */
       if (req->u.io.overlapped.InternalHigh > 0) {
-        /* Successful read */
+        /** Successful read **/
         handle->read_cb((uv_stream_t*)handle,
                         req->u.io.overlapped.InternalHigh,
                         &handle->tcp.conn.read_buffer);
-        /* Read again only if bytes == buf.len */
+        /** 缓冲区数据已读完 **/
         if (req->u.io.overlapped.InternalHigh < handle->tcp.conn.read_buffer.len) {
           goto done;
         }
       } else {
-        /* Connection closed */
+        /** EOF **/
         if (handle->flags & UV_HANDLE_READING) {
           handle->flags &= ~UV_HANDLE_READING;
           DECREASE_ACTIVE_COUNT(loop, handle);
@@ -1025,7 +1038,7 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
       }
     }
 
-    /* Do nonblocking reads until the buffer is empty */
+    /** 非阻塞读(非重叠)至缓冲区为空, 最多32次 **/
     count = 32;
     while ((handle->flags & UV_HANDLE_READING) && (count-- > 0)) {
       buf = uv_buf_init(NULL, 0);
@@ -1042,17 +1055,19 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
                   1,
                   &bytes,
                   &flags,
+                  /** 非重叠 **/
                   NULL,
-                  NULL) != SOCKET_ERROR) {
+                  NULL
+                  ) != SOCKET_ERROR) {
         if (bytes > 0) {
-          /* Successful read */
+          /** Successful read **/
           handle->read_cb((uv_stream_t*)handle, bytes, &buf);
-          /* Read again only if bytes == buf.len */
+          /** 缓冲区为空 **/
           if (bytes < buf.len) {
             break;
           }
         } else {
-          /* Connection closed */
+          /** EOF **/
           handle->flags &= ~(UV_HANDLE_READING | UV_HANDLE_READABLE);
           DECREASE_ACTIVE_COUNT(loop, handle);
 
@@ -1060,7 +1075,9 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
           break;
         }
       } else {
+        /** error **/
         err = WSAGetLastError();
+        /** 没必要回调? **/
         if (err == WSAEWOULDBLOCK) {
           /* Read buffer was completely empty, report a 0-byte read. */
           handle->read_cb((uv_stream_t*)handle, 0, &buf);
@@ -1084,13 +1101,14 @@ void uv_process_tcp_read_req(uv_loop_t* loop, uv_tcp_t* handle,
     }
 
 done:
-    /* Post another read if still reading and not closing. */
+    /** flowing状态则继续投递 **/
     if ((handle->flags & UV_HANDLE_READING) &&
         !(handle->flags & UV_HANDLE_READ_PENDING)) {
       uv_tcp_queue_read(loop, handle);
     }
   }
 
+  /** req_pending--, 检查UV_HANDLE_CLOSING状态 **/
   DECREASE_PENDING_REQ_COUNT(handle);
 }
 
@@ -1117,6 +1135,7 @@ void uv_process_tcp_write_req(uv_loop_t* loop, uv_tcp_t* handle,
     }
   }
 
+  /** 回调 **/
   if (req->cb) {
     err = uv_translate_sys_error(GET_REQ_SOCK_ERROR(req));
     if (err == UV_ECONNABORTED) {
