@@ -89,6 +89,7 @@ INLINE static void uv_want_endgame(uv_loop_t* loop, uv_handle_t* handle) {
   if (!(handle->flags & UV_HANDLE_ENDGAME_QUEUED)) {
     handle->flags |= UV_HANDLE_ENDGAME_QUEUED;
 
+    /** 加入endgame_handles链表 **/
     handle->endgame_next = loop->endgame_handles;
     loop->endgame_handles = handle;
   }

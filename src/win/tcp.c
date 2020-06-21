@@ -1436,6 +1436,7 @@ void uv_tcp_close(uv_loop_t* loop, uv_tcp_t* tcp) {
      * pending reads, or the socket must be shut down for writing */
     if (!(tcp->flags & UV_HANDLE_SHARED_TCP_SOCKET)) {
       /* Just do shutdown on non-shared sockets, which ensures graceful close. */
+      /** 非共享套接字shutdown, 等写完后自动close **/
       shutdown(tcp->socket, SD_SEND);
 
     } else if (uv_tcp_try_cancel_io(tcp) == 0) {
