@@ -918,6 +918,7 @@ int uv_tcp_write(uv_loop_t* loop,
    * 情况二: 返回SOCKET_ERROR且错误码为WSA_IO_PENDING, 缓冲区满, 
    *        有部分数据没有拷贝, 内核会暂时锁定用户缓冲区, 直到iocp返回消息
    * 情况三: 返回SOCKET_ERROR且错误码不为WSA_IO_PENDING, 严重错误, 应释放SOCKET所有资源
+   * https://my.oschina.net/mobeejoy/blog/1570575/print
    **/
   
   if (UV_SUCCEEDED_WITHOUT_IOCP(result == 0)) {
@@ -934,6 +935,7 @@ int uv_tcp_write(uv_loop_t* loop,
     handle->reqs_pending++;
     handle->stream.conn.write_reqs_pending++;
     REGISTER_HANDLE_REQ(loop, handle, req);
+    /** 写队列剩余字节数, 在uv_process_tcp_write_req中减掉 **/
     handle->write_queue_size += req->u.io.queued_bytes;
     if (handle->flags & UV_HANDLE_EMULATE_IOCP &&
         !RegisterWaitForSingleObject(&req->wait_handle,
