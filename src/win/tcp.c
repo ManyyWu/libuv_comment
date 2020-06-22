@@ -602,10 +602,12 @@ int uv_tcp_listen(uv_tcp_t* handle, int backlog, uv_connection_cb cb) {
 
   assert(backlog > 0);
 
+  /** 替换回调函数 **/
   if (handle->flags & UV_HANDLE_LISTENING) {
     handle->stream.serv.connection_cb = cb;
   }
 
+  /** 已连接 **/
   if (handle->flags & UV_HANDLE_READING) {
     return WSAEISCONN;
   }
@@ -1178,7 +1180,7 @@ void uv_process_tcp_accept_req(uv_loop_t* loop, uv_tcp_t* handle,
   /* If handle->accepted_socket is not a valid socket, then uv_queue_accept
    * must have failed. This is a serious error. We stop accepting connections
    * and report this error to the connection callback. */
-  /** 在之前的操作中发生了错误 **/
+  /** 在之前的操作中发生了错误, 或已关闭 **/
   if (req->accept_socket == INVALID_SOCKET) {
     if (handle->flags & UV_HANDLE_LISTENING) {
       handle->flags &= ~UV_HANDLE_LISTENING;
