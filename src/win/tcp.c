@@ -1464,6 +1464,7 @@ void uv_tcp_close(uv_loop_t* loop, uv_tcp_t* tcp) {
        * present on an old Windows version, we will have to close the socket
        * with a read pending. That is not nice because trailing sent bytes may
        * not make it to the other side. */
+      /** 取消失败, 只能强制关闭 **/
     }
 
   /** 共享的监听套接字, 仍有未处理完的accept投递 **/
