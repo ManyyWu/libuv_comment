@@ -223,12 +223,13 @@ void uv_tcp_endgame(uv_loop_t* loop, uv_tcp_t* handle) {
       handle->stream.conn.shutdown_req != NULL &&
       handle->stream.conn.write_reqs_pending == 0) {
 
+    /** 移除请求 **/
     UNREGISTER_HANDLE_REQ(loop, handle, handle->stream.conn.shutdown_req);
 
     err = 0;
-    if (handle->flags & UV_HANDLE_CLOSING) {
+    if (handle->flags & UV_HANDLE_CLOSING) { /** closing **/
       err = ERROR_OPERATION_ABORTED;
-    } else if (shutdown(handle->socket, SD_SEND) == SOCKET_ERROR) {
+    } else if (shutdown(handle->socket, SD_SEND) == SOCKET_ERROR) { /**  **/
       err = WSAGetLastError();
     }
 
@@ -916,7 +917,7 @@ int uv_tcp_write(uv_loop_t* loop,
   /**
    * 情况一: 返回0, 数据已拷贝到缓冲区
    * 情况二: 返回SOCKET_ERROR且错误码为WSA_IO_PENDING, 缓冲区满, 
-   *        有部分数据没有拷贝, 内核会暂时锁定用户缓冲区, 直到iocp返回消息
+   *        有部分数据没有拷贝, 内核会暂时锁定用户缓冲区(增加引用计数), 直到iocp返回消息
    * 情况三: 返回SOCKET_ERROR且错误码不为WSA_IO_PENDING, 严重错误, 应释放SOCKET所有资源
    * https://my.oschina.net/mobeejoy/blog/1570575/print
    **/
@@ -1124,6 +1125,7 @@ void uv_process_tcp_write_req(uv_loop_t* loop, uv_tcp_t* handle,
   assert(handle->write_queue_size >= req->u.io.queued_bytes);
   handle->write_queue_size -= req->u.io.queued_bytes;
 
+  /** 移除请求 **/
   UNREGISTER_HANDLE_REQ(loop, handle, req);
 
   if (handle->flags & UV_HANDLE_EMULATE_IOCP) {
@@ -1216,6 +1218,7 @@ void uv_process_tcp_connect_req(uv_loop_t* loop, uv_tcp_t* handle,
 
   assert(handle->type == UV_TCP);
 
+  /** 移除请求 **/
   UNREGISTER_HANDLE_REQ(loop, handle, req);
 
   err = 0;
