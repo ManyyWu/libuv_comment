@@ -219,6 +219,7 @@ void uv_tcp_endgame(uv_loop_t* loop, uv_tcp_t* handle) {
   unsigned int i;
   uv_tcp_accept_t* req;
 
+  /** TCP连接上有待处理的shutdown请求, 并且发送缓冲区数据已全部发送完成 **/
   if (handle->flags & UV_HANDLE_CONNECTION &&
       handle->stream.conn.shutdown_req != NULL &&
       handle->stream.conn.write_reqs_pending == 0) {
@@ -227,12 +228,13 @@ void uv_tcp_endgame(uv_loop_t* loop, uv_tcp_t* handle) {
     UNREGISTER_HANDLE_REQ(loop, handle, handle->stream.conn.shutdown_req);
 
     err = 0;
-    if (handle->flags & UV_HANDLE_CLOSING) { /** closing **/
+    if (handle->flags & UV_HANDLE_CLOSING) { /** CLOSING状态请求shutdown **/
       err = ERROR_OPERATION_ABORTED;
-    } else if (shutdown(handle->socket, SD_SEND) == SOCKET_ERROR) { /**  **/
+    } else if (shutdown(handle->socket, SD_SEND) == SOCKET_ERROR) { /** shutdown **/
       err = WSAGetLastError();
     }
 
+    /** 回调 **/
     if (handle->stream.conn.shutdown_req->cb) {
       handle->stream.conn.shutdown_req->cb(handle->stream.conn.shutdown_req,
                                uv_translate_sys_error(err));
@@ -243,17 +245,21 @@ void uv_tcp_endgame(uv_loop_t* loop, uv_tcp_t* handle) {
     return;
   }
 
+  /** 有待处理的CLOSING请求, 并且所有请求已完成 **/
   if (handle->flags & UV_HANDLE_CLOSING &&
       handle->reqs_pending == 0) {
     assert(!(handle->flags & UV_HANDLE_CLOSED));
 
+    /** 关闭套接字 **/
     if (!(handle->flags & UV_HANDLE_TCP_SOCKET_CLOSED)) {
       closesocket(handle->socket);
       handle->socket = INVALID_SOCKET;
       handle->flags |= UV_HANDLE_TCP_SOCKET_CLOSED;
     }
 
+    /** 监听套接字, 释放所有accept请求 **/
     if (!(handle->flags & UV_HANDLE_CONNECTION) && handle->tcp.serv.accept_reqs) {
+      /** 模拟iocp, 停止所有请求的监听 **/
       if (handle->flags & UV_HANDLE_EMULATE_IOCP) {
         for (i = 0; i < uv_simultaneous_server_accepts; i++) {
           req = &handle->tcp.serv.accept_reqs[i];
@@ -272,8 +278,11 @@ void uv_tcp_endgame(uv_loop_t* loop, uv_tcp_t* handle) {
       handle->tcp.serv.accept_reqs = NULL;
     }
 
+    /** TCP连接 **/
     if (handle->flags & UV_HANDLE_CONNECTION &&
+        /** 模拟iocp **/
         handle->flags & UV_HANDLE_EMULATE_IOCP) {
+      /** 停止监听 **/
       if (handle->read_req.wait_handle != INVALID_HANDLE_VALUE) {
         UnregisterWait(handle->read_req.wait_handle);
         handle->read_req.wait_handle = INVALID_HANDLE_VALUE;
@@ -1434,6 +1443,7 @@ static int uv_tcp_try_cancel_io(uv_tcp_t* tcp) {
 void uv_tcp_close(uv_loop_t* loop, uv_tcp_t* tcp) {
   int close_socket = 1;
 
+  /** 有未处理完的read投递 **/
   if (tcp->flags & UV_HANDLE_READ_PENDING) {
     /* In order for winsock to do a graceful close there must not be any any
      * pending reads, or the socket must be shut down for writing */
@@ -1446,6 +1456,7 @@ void uv_tcp_close(uv_loop_t* loop, uv_tcp_t* tcp) {
       /* In case of a shared socket, we try to cancel all outstanding I/O,. If
        * that works, don't close the socket yet - wait for the read req to
        * return and close the socket in uv_tcp_endgame. */
+      /** 共享套接字先取消所有IO投递, 稍后在uv_tcp_endgame中关闭套接字 **/
       close_socket = 0;
 
     } else {
@@ -1455,12 +1466,14 @@ void uv_tcp_close(uv_loop_t* loop, uv_tcp_t* tcp) {
        * not make it to the other side. */
     }
 
+  /** 共享的监听套接字, 仍有未处理完的accept投递 **/
   } else if ((tcp->flags & UV_HANDLE_SHARED_TCP_SOCKET) &&
              tcp->tcp.serv.accept_reqs != NULL) {
     /* Under normal circumstances closesocket() will ensure that all pending
      * accept reqs are canceled. However, when the socket is shared the
      * presence of another reference to the socket in another process will keep
      * the accept reqs going, so we have to ensure that these are canceled. */
+    /**  **/
     if (uv_tcp_try_cancel_io(tcp) != 0) {
       /* When cancellation is not possible, there is another option: we can
        * close the incoming sockets, which will also cancel the accept
@@ -1478,17 +1491,21 @@ void uv_tcp_close(uv_loop_t* loop, uv_tcp_t* tcp) {
       }
     }
   }
+  /** 非共享的监听套接字, 直接close **/
 
+  /** 先停止read **/
   if (tcp->flags & UV_HANDLE_READING) {
     tcp->flags &= ~UV_HANDLE_READING;
     DECREASE_ACTIVE_COUNT(loop, tcp);
   }
 
+  /** 监听套接字停止监听 **/
   if (tcp->flags & UV_HANDLE_LISTENING) {
     tcp->flags &= ~UV_HANDLE_LISTENING;
     DECREASE_ACTIVE_COUNT(loop, tcp);
   }
 
+  /** 关闭套接字 **/
   if (close_socket) {
     closesocket(tcp->socket);
     tcp->socket = INVALID_SOCKET;
@@ -1498,6 +1515,7 @@ void uv_tcp_close(uv_loop_t* loop, uv_tcp_t* tcp) {
   tcp->flags &= ~(UV_HANDLE_READABLE | UV_HANDLE_WRITABLE);
   uv__handle_closing(tcp);
 
+  /** 请求全部处理完成后, 稍后在调用uv_tcp_endgame **/
   if (tcp->reqs_pending == 0) {
     uv_want_endgame(tcp->loop, (uv_handle_t*)tcp);
   }
