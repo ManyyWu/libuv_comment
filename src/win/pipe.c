@@ -135,10 +135,7 @@ static void uv_pipe_connection_init(uv_pipe_t* handle) {
 static HANDLE open_named_pipe(const WCHAR* name, DWORD* duplex_flags) {
   HANDLE pipeHandle;
 
-  /*
-   * Assume that we have a duplex pipe first, so attempt to
-   * connect with GENERIC_READ | GENERIC_WRITE.
-   */
+  /** 尝试创建双工管道 **/
   pipeHandle = CreateFileW(name,
                            GENERIC_READ | GENERIC_WRITE,
                            0,
@@ -151,11 +148,7 @@ static HANDLE open_named_pipe(const WCHAR* name, DWORD* duplex_flags) {
     return pipeHandle;
   }
 
-  /*
-   * If the pipe is not duplex CreateFileW fails with
-   * ERROR_ACCESS_DENIED.  In that case try to connect
-   * as a read-only or write-only.
-   */
+  /** 尝试创建单工管道 **/
   if (GetLastError() == ERROR_ACCESS_DENIED) {
     pipeHandle = CreateFileW(name,
                              GENERIC_READ | FILE_WRITE_ATTRIBUTES,
@@ -170,7 +163,6 @@ static HANDLE open_named_pipe(const WCHAR* name, DWORD* duplex_flags) {
       return pipeHandle;
     }
   }
-
   if (GetLastError() == ERROR_ACCESS_DENIED) {
     pipeHandle = CreateFileW(name,
                              GENERIC_WRITE | FILE_READ_ATTRIBUTES,

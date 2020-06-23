@@ -427,7 +427,7 @@ typedef struct {
   uv_connection_cb connection_cb;
 
 #define UV_STREAM_PRIVATE_FIELDS                                              \
-  unsigned int reqs_pending;                                                  \
+  unsigned int reqs_pending;                     /** 已完成待处理的请求数 **/    \
   int activecnt;                                                              \
   uv_read_t read_req;                                                         \
   union {                                                                     \
