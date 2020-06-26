@@ -47,6 +47,7 @@ INLINE static void uv_stream_init(uv_loop_t* loop,
 
 
 INLINE static void uv_connection_init(uv_stream_t* handle) {
+  /** connected **/
   handle->flags |= UV_HANDLE_CONNECTION;
 }
 

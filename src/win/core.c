@@ -224,6 +224,7 @@ static void uv_init(void) {
 int uv_loop_init(uv_loop_t* loop) {
   struct heap* timer_heap;
   int err;
+  /**? 没有检查是否重复初始化 ?**/
 
   /* Initialize libuv itself first */
   uv__once_init();
@@ -449,6 +450,7 @@ static void uv__poll(uv_loop_t* loop, DWORD timeout) {
   timeout_time = loop->time + timeout;
 
   for (repeat = 0; ; repeat++) {
+    /** 效率更高 **/
     success = pGetQueuedCompletionStatusEx(loop->iocp,
                                            overlappeds,
                                            ARRAY_SIZE(overlappeds),

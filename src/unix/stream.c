@@ -649,7 +649,7 @@ done:
 
     queued_fds = server->queued_fds;
 
-    /* Read first */
+    /** 将fds[0]移到accepted_fd **/
     server->accepted_fd = queued_fds->fds[0];
 
     /* All read, free */
@@ -658,7 +658,7 @@ done:
       uv__free(queued_fds);
       server->queued_fds = NULL;
     } else {
-      /* Shift rest */
+      /** fds[1]及之后全部左移, 把最后面的移到前面不就可以了? **/
       memmove(queued_fds->fds,
               queued_fds->fds + 1,
               queued_fds->offset * sizeof(*queued_fds->fds));

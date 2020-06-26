@@ -135,10 +135,7 @@ static void uv_pipe_connection_init(uv_pipe_t* handle) {
 static HANDLE open_named_pipe(const WCHAR* name, DWORD* duplex_flags) {
   HANDLE pipeHandle;
 
-  /*
-   * Assume that we have a duplex pipe first, so attempt to
-   * connect with GENERIC_READ | GENERIC_WRITE.
-   */
+  /** 尝试创建双工管道 **/
   pipeHandle = CreateFileW(name,
                            GENERIC_READ | GENERIC_WRITE,
                            0,
@@ -151,11 +148,7 @@ static HANDLE open_named_pipe(const WCHAR* name, DWORD* duplex_flags) {
     return pipeHandle;
   }
 
-  /*
-   * If the pipe is not duplex CreateFileW fails with
-   * ERROR_ACCESS_DENIED.  In that case try to connect
-   * as a read-only or write-only.
-   */
+  /** 尝试创建单工管道 **/
   if (GetLastError() == ERROR_ACCESS_DENIED) {
     pipeHandle = CreateFileW(name,
                              GENERIC_READ | FILE_WRITE_ATTRIBUTES,
@@ -170,7 +163,6 @@ static HANDLE open_named_pipe(const WCHAR* name, DWORD* duplex_flags) {
       return pipeHandle;
     }
   }
-
   if (GetLastError() == ERROR_ACCESS_DENIED) {
     pipeHandle = CreateFileW(name,
                              GENERIC_WRITE | FILE_READ_ATTRIBUTES,
@@ -331,6 +323,7 @@ static int pipe_alloc_accept(uv_loop_t* loop, uv_pipe_t* handle,
                              uv_pipe_accept_t* req, BOOL firstInstance) {
   assert(req->pipeHandle == INVALID_HANDLE_VALUE);
 
+  /** 创建有名管道 **/
   req->pipeHandle =
       CreateNamedPipeW(handle->name,
                        PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | WRITE_DAC |
@@ -342,7 +335,7 @@ static int pipe_alloc_accept(uv_loop_t* loop, uv_pipe_t* handle,
     return 0;
   }
 
-  /* Associate it with IOCP so we can get events. */
+  /** 关联iocp **/
   if (CreateIoCompletionPort(req->pipeHandle,
                              loop->iocp,
                              (ULONG_PTR) handle,
@@ -573,6 +566,7 @@ int uv_pipe_bind(uv_pipe_t* handle, const char* name) {
    * Attempt to create the first pipe with FILE_FLAG_FIRST_PIPE_INSTANCE.
    * If this fails then there's already a pipe server for the given pipe name.
    */
+  /** 创建第一个管道 **/
   if (!pipe_alloc_accept(loop,
                          handle,
                          &handle->pipe.serv.accept_reqs[0],
@@ -843,6 +837,7 @@ static void uv_pipe_queue_accept(uv_loop_t* loop, uv_pipe_t* handle,
     uv_pipe_accept_t* req, BOOL firstInstance) {
   assert(handle->flags & UV_HANDLE_LISTENING);
 
+  /** 不是第一个管道, 则创建一个新的, 并关联iocp, 返回给上层 **/
   if (!firstInstance && !pipe_alloc_accept(loop, handle, req, FALSE)) {
     SET_REQ_ERROR(req, GetLastError());
     uv_insert_pending_req(loop, (uv_req_t*) req);
@@ -852,23 +847,26 @@ static void uv_pipe_queue_accept(uv_loop_t* loop, uv_pipe_t* handle,
 
   assert(req->pipeHandle != INVALID_HANDLE_VALUE);
 
-  /* Prepare the overlapped structure. */
+  /** 初始化重叠结构 **/
   memset(&(req->u.io.overlapped), 0, sizeof(req->u.io.overlapped));
 
+  /** 投递pipe accept **/
   if (!ConnectNamedPipe(req->pipeHandle, &req->u.io.overlapped) &&
       GetLastError() != ERROR_IO_PENDING) {
-    if (GetLastError() == ERROR_PIPE_CONNECTED) {
+    if (GetLastError() == ERROR_PIPE_CONNECTED) { /** 连接成功 **/
       SET_REQ_SUCCESS(req);
-    } else {
+    } else { /** 失败 **/
       CloseHandle(req->pipeHandle);
       req->pipeHandle = INVALID_HANDLE_VALUE;
       /* Make this req pending reporting an error. */
       SET_REQ_ERROR(req, GetLastError());
     }
+    /** 将req插入pending队列 **/
     uv_insert_pending_req(loop, (uv_req_t*) req);
     handle->reqs_pending++;
     return;
   }
+  /** 投递成功 **/
 
   /* Wait for completion via IOCP */
   handle->reqs_pending++;
@@ -938,22 +936,27 @@ int uv_pipe_listen(uv_pipe_t* handle, int backlog, uv_connection_cb cb) {
   uv_loop_t* loop = handle->loop;
   int i;
 
+  /** 替换回调函数 **/
   if (handle->flags & UV_HANDLE_LISTENING) {
     handle->stream.serv.connection_cb = cb;
   }
 
+  /** 未绑定 **/
   if (!(handle->flags & UV_HANDLE_BOUND)) {
     return WSAEINVAL;
   }
 
+  /** 已连接 **/
   if (handle->flags & UV_HANDLE_READING) {
     return WSAEISCONN;
   }
 
+  /** 不是server **/
   if (!(handle->flags & UV_HANDLE_PIPESERVER)) {
     return ERROR_NOT_SUPPORTED;
   }
 
+  /** 不是ipc **/
   if (handle->ipc) {
     return WSAEINVAL;
   }
@@ -965,6 +968,7 @@ int uv_pipe_listen(uv_pipe_t* handle, int backlog, uv_connection_cb cb) {
   /* First pipe handle should have already been created in uv_pipe_bind */
   assert(handle->pipe.serv.accept_reqs[0].pipeHandle != INVALID_HANDLE_VALUE);
 
+  /** 投递accept **/
   for (i = 0; i < handle->pipe.serv.pending_instances; i++) {
     uv_pipe_queue_accept(loop, handle, &handle->pipe.serv.accept_reqs[i], i == 0);
   }
@@ -1915,6 +1919,7 @@ void uv_process_pipe_accept_req(uv_loop_t* loop, uv_pipe_t* handle,
 
   assert(handle->type == UV_NAMED_PIPE);
 
+  /** pipe已关闭 **/
   if (handle->flags & UV_HANDLE_CLOSING) {
     /* The req->pipeHandle should be freed already in uv_pipe_cleanup(). */
     assert(req->pipeHandle == INVALID_HANDLE_VALUE);
@@ -1922,19 +1927,23 @@ void uv_process_pipe_accept_req(uv_loop_t* loop, uv_pipe_t* handle,
     return;
   }
 
-  if (REQ_SUCCESS(req)) {
+  if (REQ_SUCCESS(req)) { /** (req)->u.io.overlapped.Internal **/
     assert(req->pipeHandle != INVALID_HANDLE_VALUE);
+    /** 将req插入pending链表, 待uv_accept获取 **/
     req->next_pending = handle->pipe.serv.pending_accepts;
     handle->pipe.serv.pending_accepts = req;
 
+    /** 回调 **/
     if (handle->stream.serv.connection_cb) {
       handle->stream.serv.connection_cb((uv_stream_t*)handle, 0);
     }
   } else {
+    /** 释放req **/
     if (req->pipeHandle != INVALID_HANDLE_VALUE) {
       CloseHandle(req->pipeHandle);
       req->pipeHandle = INVALID_HANDLE_VALUE;
     }
+    /** 如果没有停止accept, 则投递下一个 **/
     if (!(handle->flags & UV_HANDLE_CLOSING)) {
       uv_pipe_queue_accept(loop, handle, req, FALSE);
     }

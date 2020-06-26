@@ -376,7 +376,7 @@ typedef struct {
     struct {                                                                  \
       OVERLAPPED overlapped;                                                  \
       size_t queued_bytes;                                                    \
-    } io;                                                                     \
+    } io; /** 重叠结构 **/                                                     \
   } u;                                                                        \
   struct uv_req_s* next_req;
 
@@ -406,6 +406,8 @@ typedef struct {
     UV_REQ_FIELDS                                                             \
     SOCKET accept_socket;                                                     \
     char accept_buffer[sizeof(struct sockaddr_storage) * 2 + 32];             \
+    /** acceptex成功时, 会有本地地址, 对端地址, data **/                          \
+                                                                              \
     HANDLE event_handle;                                                      \
     HANDLE wait_handle;                                                       \
     struct uv_tcp_accept_s* next_pending;                                     \
@@ -425,7 +427,7 @@ typedef struct {
   uv_connection_cb connection_cb;
 
 #define UV_STREAM_PRIVATE_FIELDS                                              \
-  unsigned int reqs_pending;                                                  \
+  unsigned int reqs_pending;                     /** 已完成待处理的请求数 **/    \
   int activecnt;                                                              \
   uv_read_t read_req;                                                         \
   union {                                                                     \
@@ -434,10 +436,10 @@ typedef struct {
   } stream;
 
 #define uv_tcp_server_fields                                                  \
-  uv_tcp_accept_t* accept_reqs;                                               \
-  unsigned int processed_accepts;                                             \
-  uv_tcp_accept_t* pending_accepts;                                           \
-  LPFN_ACCEPTEX func_acceptex;
+  uv_tcp_accept_t* accept_reqs;     /** accept请求数据, 用于边续accept **/      \
+  unsigned int processed_accepts;   /** 已被uv_tcp_accept处理的请求 **/         \
+  uv_tcp_accept_t* pending_accepts; /** 已完成待uv_tcp_accept处理的请求 **/      \
+  LPFN_ACCEPTEX func_acceptex;      /** acceptex指针, 用全局变量？ **/
 
 #define uv_tcp_connection_fields                                              \
   uv_buf_t read_buffer;                                                       \

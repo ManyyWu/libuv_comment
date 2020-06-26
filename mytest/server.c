@@ -19,7 +19,7 @@ uv_buf_t dummy_buf;
 char worker_path[500];
 
 void close_process_handle(uv_process_t *req, int64_t exit_status, int term_signal) {
-  fprintf(stderr, "[master] Process exited with status %" PRId64 ", signal %d\n", exit_status, term_signal);
+  fprintf(stderr, "Process exited with status %" PRId64 ", signal %d\n", exit_status, term_signal);
   uv_close((uv_handle_t*) req, NULL);
 }
 
@@ -42,8 +42,7 @@ void on_new_connection(uv_stream_t *server, int status) {
     struct child_worker *worker = &workers[round_robin_counter];
     uv_write2(write_req, (uv_stream_t*) &worker->pipe, &dummy_buf, 1, (uv_stream_t*) client, NULL);
     round_robin_counter = (round_robin_counter + 1) % child_worker_count;
-  }
-  else {
+  } else {
     uv_close((uv_handle_t*) client, NULL);
   }
 }
@@ -51,8 +50,15 @@ void on_new_connection(uv_stream_t *server, int status) {
 void setup_workers() {
   size_t path_size = 500;
   uv_exepath(worker_path, &path_size);
-  strcpy(worker_path + (strlen(worker_path) - strlen("mytest")), "mytest_worker");
-  fprintf(stderr, "[master] Worker path: %s\n", worker_path);
+#ifndef _WIN32
+#define MASTER_NAME "mytest"
+#define WORKER_NAME "mytest_worker"
+#else
+#define MASTER_NAME "mytest.exe"
+#define WORKER_NAME "mytest_worker.exe"
+#endif
+  strcpy(worker_path + (strlen(worker_path) - strlen(MASTER_NAME)), WORKER_NAME);
+  fprintf(stderr, "Worker path: %s\n", worker_path);
 
   char* args[2];
   args[0] = worker_path;
@@ -90,7 +96,7 @@ void setup_workers() {
     worker->options.args = args;
 
     uv_spawn(loop, &worker->req, &worker->options);
-    fprintf(stderr, "[master] Started worker %d\n", worker->req.pid);
+    fprintf(stderr, "Started worker %d\n", worker->req.pid);
   }
 }
 
@@ -103,15 +109,15 @@ int main() {
   uv_tcp_init(loop, &server);
 
   struct sockaddr_in bind_addr;
-  uv_ip4_addr("0.0.0.0", 20000, &bind_addr);
+  uv_ip4_addr("0.0.0.0", 7000, &bind_addr);
   uv_tcp_bind(&server, (const struct sockaddr *)&bind_addr, 0);
   int r;
   if ((r = uv_listen((uv_stream_t*) &server, 128, on_new_connection))) {
-    fprintf(stderr, "[master] Listen error %s\n", uv_err_name(r));
+    fprintf(stderr, "Listen error %s\n", uv_err_name(r));
     return 2;
   }
   return uv_run(loop, UV_RUN_DEFAULT);
 }
 
-// set detach-on-fork off
+// set detach-on-fork on
 // set follow-fork-mode child
